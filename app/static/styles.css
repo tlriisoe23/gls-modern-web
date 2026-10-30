@@ -427,3 +427,69 @@ tr:hover td {
   gap: 8px;
   align-items: center;
 }
+
+.matchups-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.matchup-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.matchup-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.caddy-box {
+  background: var(--bg-elev);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.caddy-btn {
+  min-height: 40px;
+  min-width: 82px;
+  justify-content: center;
+  font-weight: 700;
+}
+
+@media print {
+  .topbar .toolbar,
+  .tabs-bar,
+  .caddy-box,
+  .save-score-btn,
+  #playerForm {
+    display: none !important;
+  }
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .panel,
+  .kpi-card,
+  .matchup-card,
+  .skin-card {
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #cbd5e1 !important;
+    break-inside: avoid;
+  }
+  .tab-pane.hidden {
+    display: block !important;
+  }
+  #tab-roster,
+  #tab-courses,
+  #tab-explorer {
+    display: none !important;
+  }
+}

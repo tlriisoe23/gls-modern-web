@@ -20,8 +20,12 @@
       <label for="leagueSelect" class="brand-sub">Active League:</label>
       <select id="leagueSelect" aria-label="Select Golf League"></select>
 
-      <button id="recalcHcpBtn" class="gold" title="Recompute Player & Team Handicaps using League PercentHandicap & PastScores">
+      <button id="recalcHcpBtn" class="gold" title="Recompute Player & Team Handicaps using League PercentHandicap & ESC-Adjusted Scores">
         ⚡ Recalculate Handicaps
+      </button>
+
+      <button id="printSheetBtn" title="Print Weekly Clubhouse Standings, Matchups & Skins Sheet (frmPreview replacement)">
+        🖨️ Print Clubhouse Sheet
       </button>
 
       <label class="btn" for="mdbUploadInput" title="Drop or select any GolfSoft Gls90db.mdb file to migrate all 60 tables">
@@ -119,19 +123,51 @@
       <div class="panel">
         <div class="panel-header">
           <div class="form-row">
-            <h2>Hole-by-Hole Scorecard &amp; Match Points (`*PlayerResults`)</h2>
+            <h2>Hole-by-Hole Scorecard, ESC &amp; Match Points (`*PlayerResults` + `*AdjScores`)</h2>
             <label for="weekSelect">Week:</label>
             <select id="weekSelect" aria-label="Select Week Number"></select>
             <span id="weekCourseBadge" class="badge"></span>
           </div>
-          <div class="brand-sub">Gold dots (`•`) show handicap strokes received on each hole based on Course Handicap Rank (`CourseHandicap`). Edit any hole and click <strong>Save</strong>.</div>
+          <div class="form-row">
+            <button id="toggleCaddyBtn" class="gold">📱 Toggle Mobile Caddy Mode</button>
+            <button id="autoScoreMatchesBtn" class="primary">⚔️ Auto-Score Week Matches &amp; Standings</button>
+          </div>
         </div>
+
+        <div id="caddyModeBox" class="caddy-box hidden">
+          <div class="form-row" style="justify-content:space-between">
+            <div class="form-row">
+              <strong>📱 On-Course Mobile Caddy Quick Entry:</strong>
+              <label for="caddyPlayerSelect">Golfer:</label>
+              <select id="caddyPlayerSelect" aria-label="Select Golfer for Mobile Entry"></select>
+              <label for="caddyHoleSelect">Hole:</label>
+              <select id="caddyHoleSelect" aria-label="Select Hole for Mobile Entry"></select>
+              <span id="caddyHoleMeta" class="badge gold"></span>
+            </div>
+            <div class="form-row">
+              <button type="button" class="caddy-btn" data-rel="-1">🦅 Birdie (-1)</button>
+              <button type="button" class="caddy-btn primary" data-rel="0">⛳ Par (E)</button>
+              <button type="button" class="caddy-btn" data-rel="1">Bogey (+1)</button>
+              <button type="button" class="caddy-btn" data-rel="2">Double (+2)</button>
+              <button type="button" id="caddySaveBtn" class="primary">💾 Save Card</button>
+            </div>
+          </div>
+        </div>
+
         <div class="table-wrap">
           <table id="scorecardTable">
             <thead></thead>
             <tbody></tbody>
           </table>
         </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h3>⚔️ Head-to-Head Match Play Pairings (`*MatchSetup` / `frmMatchSet` — 0.5x Tie-Splitting)</h3>
+          <span id="matchupsCountBadge" class="badge"></span>
+        </div>
+        <div id="matchupsBox" class="matchups-grid"></div>
       </div>
 
       <div class="grid-2">

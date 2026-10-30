@@ -1,9 +1,6 @@
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
+data/*.db
 data/*.db-shm
 data/*.db-wal
-node_modules/
-test-results/
-playwright-report/
-.env

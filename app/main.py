@@ -119,6 +119,29 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
         with get_conn() as conn:
             return golf_engine.save_player_week_score(conn, lid, week_num, req.model_dump())
 
+    @app.post("/api/leagues/{lid}/week/{week_num}/auto-score-matches")
+    def auto_score_week(lid: int, week_num: int):
+        with get_conn() as conn:
+            return golf_engine.auto_score_week_matches(conn, lid, week_num)
+
+    @app.get("/api/leagues/{lid}/week/{week_num}/report")
+    def week_clubhouse_report(lid: int, week_num: int):
+        with get_conn() as conn:
+            st = golf_engine.get_league_standings(conn, lid)
+            sc = golf_engine.get_week_scorecard(conn, lid, week_num)
+            return {
+                "league": st["league"],
+                "rules_summary": st["rules_summary"],
+                "course": st["course"],
+                "week_num": week_num,
+                "teams": st["teams"],
+                "players": st["players"][:10],
+                "matchups": sc["matchups"],
+                "team_results": sc["team_results"],
+                "gross_skins": sc["gross_skins"],
+                "net_skins": sc["net_skins"],
+            }
+
     @app.post("/api/leagues/{lid}/recalculate-handicaps")
     def recalc_hcps(lid: int):
         with get_conn() as conn:

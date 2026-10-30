@@ -35,13 +35,11 @@ function fmtNum(v, d = 1) {
 }
 
 async function initApp() {
-  // Theme switcher
   const themeSel = document.getElementById("themeSelect");
   themeSel.addEventListener("change", () => {
     document.documentElement.setAttribute("data-theme", themeSel.value);
   });
 
-  // Tabs
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".tab-btn").forEach((b) => {
@@ -56,7 +54,6 @@ async function initApp() {
     });
   });
 
-  // Load leagues
   const lgData = await api("/api/leagues");
   state.leagues = lgData.leagues || [];
   const lgSel = document.getElementById("leagueSelect");
@@ -67,7 +64,6 @@ async function initApp() {
     )
     .join("");
   if (state.leagues.length > 0) {
-    // Default to League 10 (18-Hole 4-Person Team League) or first available
     const has10 = state.leagues.some((l) => Number(l.LeagueID) === 10);
     state.activeLeagueId = has10 ? 10 : Number(state.leagues[0].LeagueID);
     lgSel.value = String(state.activeLeagueId);
@@ -88,7 +84,23 @@ async function initApp() {
     const res = await api(`/api/leagues/${state.activeLeagueId}/recalculate-handicaps`, {
       method: "POST",
     });
-    showToast(`Recalculated handicaps for ${res.updated_players} players!`);
+    showToast(`Recalculated ESC handicaps for ${res.updated_players} players!`);
+    await refreshLeagueData();
+  });
+
+  document.getElementById("printSheetBtn").addEventListener("click", () => {
+    window.print();
+  });
+
+  document.getElementById("toggleCaddyBtn").addEventListener("click", () => {
+    document.getElementById("caddyModeBox").classList.toggle("hidden");
+  });
+
+  document.getElementById("autoScoreMatchesBtn").addEventListener("click", async () => {
+    await api(`/api/leagues/${state.activeLeagueId}/week/${state.activeWeek}/auto-score-matches`, {
+      method: "POST",
+    });
+    showToast(`Auto-scored Week ${state.activeWeek} Head-to-Head Match Play & Standings!`);
     await refreshLeagueData();
   });
 
@@ -141,9 +153,50 @@ async function initApp() {
     await loadScheduleTab();
   });
 
+  setupCaddyModeHandlers();
+
   await refreshLeagueData();
   await loadCoursesTab();
   await loadExplorerTab();
+}
+
+function setupCaddyModeHandlers() {
+  const holeSel = document.getElementById("caddyHoleSelect");
+  holeSel.addEventListener("change", updateCaddyHoleMeta);
+
+  document.querySelectorAll(".caddy-btn[data-rel]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const pid = Number(document.getElementById("caddyPlayerSelect").value);
+      const hIdx = Number(document.getElementById("caddyHoleSelect").value);
+      const rel = Number(btn.dataset.rel);
+      const hm = (state.scorecard?.holes_meta || [])[hIdx];
+      const par = hm ? hm.par : 4;
+      const score = Math.max(1, par + rel);
+      const inp = document.querySelector(`tr[data-row-pid="${pid}"] .score-input[data-hidx="${hIdx}"]`);
+      if (inp) {
+        inp.value = String(score);
+        showToast(`Set Hole #${hIdx + 1} to ${score} (Par ${par}) for Golfer #${pid}`);
+        const nextIdx = (hIdx + 1) % (state.scorecard?.num_holes || 18);
+        document.getElementById("caddyHoleSelect").value = String(nextIdx);
+        updateCaddyHoleMeta();
+      }
+    });
+  });
+
+  document.getElementById("caddySaveBtn").addEventListener("click", () => {
+    const pid = Number(document.getElementById("caddyPlayerSelect").value);
+    const saveBtn = document.querySelector(`.save-score-btn[data-pid="${pid}"]`);
+    if (saveBtn) saveBtn.click();
+  });
+}
+
+function updateCaddyHoleMeta() {
+  const hIdx = Number(document.getElementById("caddyHoleSelect").value || 0);
+  const hm = (state.scorecard?.holes_meta || [])[hIdx];
+  const badge = document.getElementById("caddyHoleMeta");
+  if (hm && badge) {
+    badge.textContent = `Hole #${hm.hole} · Par ${hm.par} · ${hm.yards} yds · Hcp #${hm.handicap_rank}`;
+  }
 }
 
 async function refreshLeagueData() {
@@ -158,6 +211,7 @@ async function refreshLeagueData() {
 
 function renderKpiStrip(st) {
   const lg = st.league || {};
+  const rs = st.rules_summary || {};
   const c = st.course || {};
   const totalPrizeMoney = (st.players || []).reduce((acc, p) => acc + Number(p.Money || 0), 0);
   const avgHcp =
@@ -169,7 +223,7 @@ function renderKpiStrip(st) {
     <div class="kpi-card">
       <div class="kpi-label">Active League</div>
       <div class="kpi-value">#${lg.LeagueID} · ${lg.LeagueHoles || 18} Holes</div>
-      <div class="kpi-sub">${lg.LeagueName || ""}</div>
+      <div class="kpi-sub">${lg.LeagueName || ""} (${rs.LeagueDay || ""} @ ${rs.FirstTeeTime || ""})</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Home Course</div>
@@ -179,17 +233,17 @@ function renderKpiStrip(st) {
     <div class="kpi-card">
       <div class="kpi-label">Teams &amp; Players</div>
       <div class="kpi-value">${(st.teams || []).length} Teams · ${(st.players || []).length} Players</div>
-      <div class="kpi-sub">${(st.subs || []).length} Active Substitutes</div>
+      <div class="kpi-sub">${rs.NumManTeams || 2}-Person Teams · ${(st.subs || []).length} Subs</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">League Average Handicap</div>
-      <div class="kpi-value">${avgHcp}</div>
-      <div class="kpi-sub">${lg.PercentHandicap || 90}% Factor · Max ${lg.MaximumHandicap || 18}</div>
+      <div class="kpi-label">League Avg Handicap &amp; ESC</div>
+      <div class="kpi-value">${avgHcp} Hcp</div>
+      <div class="kpi-sub">${rs.PercentHandicap || 90}% Factor · Max ${rs.MaximumHandicap || 18} · ${rs.AdjustScoresLabel || "ESC"}</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Total Prize Purse Awarded</div>
       <div class="kpi-value">${fmtMoney(totalPrizeMoney)}</div>
-      <div class="kpi-sub">${lg.SecretaryName || "League Secretary"} (${lg.City || ""}, ${lg.State || ""})</div>
+      <div class="kpi-sub">Divisions: ${(rs.Divisions || []).join(" / ")}</div>
     </div>
   `;
 }
@@ -197,8 +251,7 @@ function renderKpiStrip(st) {
 function renderStandingsTab(st) {
   const teams = st.teams || [];
   const players = st.players || [];
-  const lg = st.league || {};
-  const rules = st.rules || {};
+  const rs = st.rules_summary || {};
 
   document.getElementById("teamMetaBadge").textContent = `${teams.length} Teams`;
   document.getElementById("playerMetaBadge").textContent = `${players.length} Players`;
@@ -240,24 +293,24 @@ function renderStandingsTab(st) {
 
   document.getElementById("leagueRulesSummary").innerHTML = `
     <div class="kpi-card">
-      <div class="kpi-label">Handicap Formula</div>
-      <div class="kpi-value">${lg.PercentHandicap || 90}% of Over-Par</div>
-      <div class="kpi-sub">Max Handicap: ${lg.MaximumHandicap || 18} (Scratch: ${lg.Scratch || 0})</div>
+      <div class="kpi-label">Handicap &amp; ESC Policy</div>
+      <div class="kpi-value">${rs.PercentHandicap || 90}% Over-Par (Max ${rs.MaximumHandicap || 18})</div>
+      <div class="kpi-sub">ESC Cap: ${rs.AdjustScoresLabel || "Double Bogey Max"} · Sub Factor: ${rs.SubPercent || 100}%</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Match Points Structure</div>
-      <div class="kpi-value">${lg.MatchPts || 2} Match / ${lg.HolePts || 1} Hole</div>
-      <div class="kpi-sub">Team Bonus Pts: ${lg.TeamPts || 2}</div>
+      <div class="kpi-label">Match Play Points (` + "`LeagueRules`" + `)</div>
+      <div class="kpi-value">${rs.HolePts || 1} Hole / ${rs.IndMatchPts || 2} Match</div>
+      <div class="kpi-sub">Team Match Bonus: ${rs.TeamMatchPts || 4} pts · Field Top: ${rs.FieldTopPts || 0} pts</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Season Dues &amp; Fees</div>
-      <div class="kpi-value">${fmtMoney(rules.GreenFees)} Green / ${fmtMoney(rules.LeagueFee)} League</div>
-      <div class="kpi-sub">Skins: ${fmtMoney(rules.SkinsFee)} · Banquet: ${fmtMoney(rules.BanquetFee)}</div>
+      <div class="kpi-label">Season Dues &amp; Fees (` + "`*LeagueFees`" + `)</div>
+      <div class="kpi-value">${fmtMoney(rs.GreenFees)} Green / ${fmtMoney(rs.LeagueFee)} League</div>
+      <div class="kpi-sub">Skins: ${fmtMoney(rs.SkinsFee)} · Banquet: ${fmtMoney(rs.BanquetFee)}</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Divisions</div>
-      <div class="kpi-value">${lg.NumOfDivisions || 1} Division(s)</div>
-      <div class="kpi-sub">${[lg.Div1Name, lg.Div2Name, lg.Div3Name].filter(Boolean).join(" / ") || "Flight A"}</div>
+      <div class="kpi-label">Tee Times &amp; Divisions</div>
+      <div class="kpi-value">${rs.FirstTeeTime || "05:00 PM"} (${rs.MinsBetweenGroups || 9}m)</div>
+      <div class="kpi-sub">${(rs.Divisions || []).join(" / ")}</div>
     </div>
   `;
 }
@@ -267,6 +320,17 @@ async function loadWeekScorecard() {
   state.scorecard = sc;
   const holesMeta = sc.holes_meta || [];
   document.getElementById("weekCourseBadge").textContent = `${sc.course?.CourseName || "Course"} · ${sc.num_holes} Holes`;
+
+  // Populate Mobile Caddy selects
+  const caddyPlayerSel = document.getElementById("caddyPlayerSelect");
+  caddyPlayerSel.innerHTML = (sc.scorecards || [])
+    .map((c) => `<option value="${c.PlayerID}">${c.PlayerName} (T${c.TeamID} · Hcp ${fmtNum(c.Handicap)})</option>`)
+    .join("");
+  const caddyHoleSel = document.getElementById("caddyHoleSelect");
+  caddyHoleSel.innerHTML = holesMeta
+    .map((h, i) => `<option value="${i}">Hole #${h.hole} (Par ${h.par})</option>`)
+    .join("");
+  updateCaddyHoleMeta();
 
   const thead = document.querySelector("#scorecardTable thead");
   const tbody = document.querySelector("#scorecardTable tbody");
@@ -284,8 +348,10 @@ async function loadWeekScorecard() {
       <th class="num">Front</th>
       ${sc.num_holes > 9 ? '<th class="num">Back</th>' : ""}
       <th class="num">Gross</th>
+      <th class="num" title="Equitable Stroke Control Adjusted Score">ESC Adj</th>
       <th class="num">Net</th>
       <th class="num">+/-</th>
+      <th class="num" title="Modified Stableford Net Points">Stbl</th>
       <th class="num">Putts</th>
       <th class="num">GIR</th>
       <th class="num">Pts</th>
@@ -306,6 +372,7 @@ async function loadWeekScorecard() {
         .join("");
 
       const overStr = row.Gross > 0 ? (row.OverPar > 0 ? `+${row.OverPar}` : String(row.OverPar)) : "-";
+      const adjStr = row.AdjGross > 0 ? `${row.AdjGross}${row.ESC_CappedStrokes > 0 ? " (-" + row.ESC_CappedStrokes + ")" : ""}` : "-";
       return `
         <tr data-row-pid="${row.PlayerID}">
           <td><strong>${row.PlayerName}</strong></td>
@@ -315,8 +382,10 @@ async function loadWeekScorecard() {
           <td class="num"><strong>${row.FrontNine || "-"}</strong></td>
           ${sc.num_holes > 9 ? `<td class="num"><strong>${row.BackNine || "-"}</strong></td>` : ""}
           <td class="num"><span class="badge">${row.Gross || "-"}</span></td>
+          <td class="num">${adjStr}</td>
           <td class="num"><span class="badge gold">${row.Net || "-"}</span></td>
           <td class="num">${overStr}</td>
+          <td class="num">${row.Gross > 0 ? row.StablefordNet : "-"}</td>
           <td class="num"><input type="number" class="stat-input putts-inp" value="${row.NumPutts || 0}" /></td>
           <td class="num"><input type="number" class="stat-input gir-inp" value="${row.GreensInRegulation || 0}" /></td>
           <td class="num"><input type="number" step="0.5" class="stat-input pts-inp" value="${row.IndividualPts || 0}" /></td>
@@ -339,10 +408,36 @@ async function loadWeekScorecard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ PlayerID: pid, holes, NumPutts, GreensInRegulation, IndividualPts }),
       });
-      showToast(`Saved Week ${state.activeWeek} scorecard for Player #${pid}!`);
-      await loadWeekScorecard();
+      showToast(`Saved Week ${state.activeWeek} scorecard, ESC & Match Play for Player #${pid}!`);
+      await refreshLeagueData();
     });
   });
+
+  // Render Head-to-Head Matchup Pairings
+  const matchups = sc.matchups || [];
+  document.getElementById("matchupsCountBadge").textContent = `${matchups.length} Pairings`;
+  const mBox = document.getElementById("matchupsBox");
+  mBox.innerHTML =
+    matchups.length > 0
+      ? matchups
+          .map(
+            (m) => `
+        <div class="matchup-card">
+          <div class="matchup-row">
+            <strong>${m.PlayerA_Name} (T${m.PlayerA_Team} · Hcp ${fmtNum(m.PlayerA_Hcp)})</strong>
+            <span class="badge">${m.computed_pts_a} pts (${m.holes_won_a}W)</span>
+          </div>
+          <div class="matchup-row">
+            <strong>${m.PlayerB_Name} (T${m.PlayerB_Team} · Hcp ${fmtNum(m.PlayerB_Hcp)})</strong>
+            <span class="badge">${m.computed_pts_b} pts (${m.holes_won_b}W)</span>
+          </div>
+          <div class="kpi-sub" style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px">
+            <strong>${m.status}</strong> · Halved Holes: ${m.holes_halved} · Net: ${m.PlayerA_Net || "-"} vs ${m.PlayerB_Net || "-"}
+          </div>
+        </div>`
+          )
+          .join("")
+      : `<div class="brand-sub">Individual Flight mode (Field Points awarded across all golfers).</div>`;
 
   // Render Gross & Net Skins
   const gBox = document.getElementById("grossSkinsBox");

@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en" data-theme="emerald-dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Golf League Secretary — Modern Web Edition (GLS9 Clean-Room)</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-badge" aria-hidden="true">GLS</div>
+      <div>
+        <h1>Golf League Secretary <span class="badge">Modern Web v2.0</span></h1>
+        <div class="brand-sub">Clean-Room Web Replacement for GolfSoft GLS9 (VB6 / Jet 3.5 .mdb → FastAPI + SQLite WAL)</div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <label for="leagueSelect" class="brand-sub">Active League:</label>
+      <select id="leagueSelect" aria-label="Select Golf League"></select>
+
+      <button id="recalcHcpBtn" class="gold" title="Recompute Player & Team Handicaps using League PercentHandicap & PastScores">
+        ⚡ Recalculate Handicaps
+      </button>
+
+      <label class="btn" for="mdbUploadInput" title="Drop or select any GolfSoft Gls90db.mdb file to migrate all 60 tables">
+        📂 Import .mdb
+      </label>
+      <input id="mdbUploadInput" type="file" accept=".mdb" class="hidden" />
+
+      <a class="btn primary" href="/api/export/sqlite" download="gls9_modern.db">
+        ⬇ Download SQLite (.db)
+      </a>
+
+      <select id="themeSelect" aria-label="Color Theme">
+        <option value="emerald-dark">Theme: Augusta Emerald (Dark)</option>
+        <option value="zinc-dark">Theme: Zinc Pro (Dark)</option>
+        <option value="slate-light">Theme: Clubhouse Daylight (Light)</option>
+        <option value="cyber-indigo">Theme: Twilight Indigo</option>
+        <option value="sunset-amber">Theme: Golden Hour Amber</option>
+      </select>
+    </div>
+  </header>
+
+  <nav class="tabs-bar" role="tablist" aria-label="GLS9 Workspaces">
+    <button class="tab-btn active" data-tab="standings" role="tab" aria-selected="true">🏆 1. Standings &amp; Leaderboards</button>
+    <button class="tab-btn" data-tab="scorecard" role="tab" aria-selected="false">📝 2. Weekly Scorecard &amp; Skins</button>
+    <button class="tab-btn" data-tab="roster" role="tab" aria-selected="false">👥 3. Roster, Subs &amp; Dues</button>
+    <button class="tab-btn" data-tab="schedule" role="tab" aria-selected="false">📅 4. Schedule &amp; Round-Robin</button>
+    <button class="tab-btn" data-tab="courses" role="tab" aria-selected="false">⛳ 5. Golf Courses (18/36-Hole)</button>
+    <button class="tab-btn" data-tab="explorer" role="tab" aria-selected="false">🗄️ 6. Raw .mdb Explorer (60 Tables)</button>
+  </nav>
+
+  <main class="container">
+    <section id="kpiStrip" class="kpi-strip" aria-label="League Summary KPIs"></section>
+
+    <!-- TAB 1: STANDINGS & LEADERBOARDS -->
+    <section id="tab-standings" class="tab-pane">
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Team Standings (`*Teams`)</h2>
+            <span id="teamMetaBadge" class="badge"></span>
+          </div>
+          <div class="table-wrap">
+            <table id="teamsTable">
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Team ID</th>
+                  <th>Team Name</th>
+                  <th>Div</th>
+                  <th class="num">Team Hcp</th>
+                  <th class="num">Prev Pts</th>
+                  <th class="num">Total Pts</th>
+                  <th class="num">Money Won</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Individual Player Leaderboard (`*Players`)</h2>
+            <span id="playerMetaBadge" class="badge"></span>
+          </div>
+          <div class="table-wrap">
+            <table id="playersLeaderTable">
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Player</th>
+                  <th>Team</th>
+                  <th class="num">Handicap</th>
+                  <th class="num">Prev Pts</th>
+                  <th class="num">Total Pts</th>
+                  <th class="num">Prize Money</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h3>League Rules &amp; Handicap Configuration (`Leagues` + `LeagueRules`)</h3>
+        </div>
+        <div id="leagueRulesSummary" class="kpi-strip"></div>
+      </div>
+    </section>
+
+    <!-- TAB 2: WEEKLY SCORECARD & SKINS -->
+    <section id="tab-scorecard" class="tab-pane hidden">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="form-row">
+            <h2>Hole-by-Hole Scorecard &amp; Match Points (`*PlayerResults`)</h2>
+            <label for="weekSelect">Week:</label>
+            <select id="weekSelect" aria-label="Select Week Number"></select>
+            <span id="weekCourseBadge" class="badge"></span>
+          </div>
+          <div class="brand-sub">Gold dots (`•`) show handicap strokes received on each hole based on Course Handicap Rank (`CourseHandicap`). Edit any hole and click <strong>Save</strong>.</div>
+        </div>
+        <div class="table-wrap">
+          <table id="scorecardTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>🔥 Gross Skins Winners (Outright Low Hole Score)</h3>
+          </div>
+          <div id="grossSkinsBox" class="skins-grid"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>⚡ Net Skins Winners (Handicap-Adjusted Low Hole Score)</h3>
+          </div>
+          <div id="netSkinsBox" class="skins-grid"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: ROSTER, SUBS & DUES -->
+    <section id="tab-roster" class="tab-pane hidden">
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Add / Update League Player (`frmPlayer2`)</h2>
+        </div>
+        <form id="playerForm" class="form-row">
+          <input type="hidden" id="pfPlayerID" />
+          <input type="text" id="pfFirst" placeholder="First Name" required />
+          <input type="text" id="pfLast" placeholder="Last Name" required />
+          <input type="number" id="pfTeam" placeholder="Team ID (e.g. 1)" value="1" min="1" style="width:110px" required />
+          <input type="number" step="0.1" id="pfHcp" placeholder="Handicap" value="8.0" style="width:110px" required />
+          <input type="number" step="0.5" id="pfPts" placeholder="Points" value="0" style="width:100px" />
+          <input type="number" step="0.01" id="pfMoney" placeholder="Money ($)" value="0" style="width:110px" />
+          <input type="email" id="pfEmail" placeholder="Email" />
+          <input type="text" id="pfPhone" placeholder="Phone" />
+          <button type="submit" class="primary">💾 Save Player</button>
+        </form>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Substitute Roster (`*Subs`)</h3>
+          </div>
+          <div class="table-wrap">
+            <table id="subsTable">
+              <thead>
+                <tr>
+                  <th>Sub ID</th>
+                  <th>Name</th>
+                  <th class="num">Handicap</th>
+                  <th class="num">Points</th>
+                  <th class="num">Money</th>
+                  <th>Phone</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3>League Fees &amp; Dues Ledger (`*LeagueFees` / `frmFees`)</h3>
+          </div>
+          <div class="table-wrap">
+            <table id="feesTable">
+              <thead>
+                <tr>
+                  <th>Player ID</th>
+                  <th>Player Name</th>
+                  <th class="num">Green Fees</th>
+                  <th class="num">League Fee</th>
+                  <th class="num">Skins Fee</th>
+                  <th class="num">Banquet Fee</th>
+                  <th class="num">Extra Fee</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: SCHEDULE & ROUND-ROBIN -->
+    <section id="tab-schedule" class="tab-pane hidden">
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Season Schedule &amp; Round-Robin Generator (`*Schedule` + `Schedules/*.csv`)</h2>
+          <div class="form-row">
+            <label for="schedWeeksInput">Weeks:</label>
+            <input id="schedWeeksInput" type="number" value="17" min="1" max="52" style="width:75px" />
+            <label for="schedStartInput">Start Date:</label>
+            <input id="schedStartInput" type="date" value="2026-05-05" />
+            <button id="genSchedBtn" class="primary">🔄 Generate Round-Robin Schedule</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="scheduleTable">
+            <thead>
+              <tr>
+                <th>Week</th>
+                <th>Date</th>
+                <th>Half</th>
+                <th>Weather</th>
+                <th>Match 1 Pairing</th>
+                <th>Match 2 Pairing</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: GOLF COURSES -->
+    <section id="tab-courses" class="tab-pane hidden">
+      <div id="coursesContainer"></div>
+    </section>
+
+    <!-- TAB 6: RAW .MDB EXPLORER -->
+    <section id="tab-explorer" class="tab-pane hidden">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="form-row">
+            <h2>Microsoft Jet `.mdb` Table Explorer (`frmDbViewer` Replacement — 60 Migrated Tables)</h2>
+            <select id="rawTableSelect" aria-label="Select Database Table"></select>
+            <span id="rawTableCountBadge" class="badge"></span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="rawTableGrid">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

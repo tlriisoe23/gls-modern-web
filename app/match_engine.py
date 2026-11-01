@@ -327,7 +327,9 @@ def load_week_entries(conn: sqlite3.Connection, ctx: dict[str, Any], lid: int, w
             holes18 = _hole_cols(sr)
             s = subs.get(sr.get("SubID"))
             sub_name = f"{s.get('SubFirst','')} {s.get('SubLast','')}".strip() if s else f"Sub #{sr.get('SubID')}"
-            hcp = float(sr.get("SubCap") if sr.get("SubCap") is not None else (float((s or {}).get("SubHandicap") or 0) * sub_pct))
+            sub_cap_val = sr.get("SubCap")
+            s_handicap = float((s or {}).get("SubHandicap") or 0)
+            hcp = float(sub_cap_val) if sub_cap_val is not None else (s_handicap * sub_pct)
         nine = detect_nine(holes18, num_holes, default_nine)
         if nine == "front":
             holes = holes18[:9]
@@ -619,12 +621,12 @@ def compute_week(conn: sqlite3.Connection, lid: int, week_num: int) -> dict[str,
         team_pairs: list[tuple[int, int]] = []
         if sched:
             row = sched[0]
-            m = 1
-            while f"Match{m}Team1" in row:
-                t1, t2 = row.get(f"Match{m}Team1"), row.get(f"Match{m}Team2")
+            m_idx = 1
+            while f"Match{m_idx}Team1" in row:
+                t1, t2 = int(row.get(f"Match{m_idx}Team1") or 0), int(row.get(f"Match{m_idx}Team2") or 0)
                 if t1 and t2:
-                    team_pairs.append((int(t1), int(t2)))
-                m += 1
+                    team_pairs.append((t1, t2))
+                m_idx += 1
         paired = {t for pr in team_pairs for t in pr}
         for t1, t2 in team_pairs:
             A, B = team_agg(t1), team_agg(t2)
@@ -759,7 +761,7 @@ def clubhouse_sheet(conn: sqlite3.Connection, lid: int, week_num: int) -> dict[s
     groups = max(1, (len(res["matches"]) + 1) // 2)
     times = [r.get("Ttime") for r in tt_rows if r.get("Ttime")] or tee_times(ctx["league"].get("FirstTeeTime"), ctx["league"].get("MinsBetweenGroups"), groups)
     while len(times) < groups:
-        times.append(times[-1] if times else "")
+        times.append(str(times[-1]) if times else "")
     for i, m in enumerate(res["matches"]):
         m["tee_time"] = times[i // 2] if times else None
         m["group"] = i // 2 + 1

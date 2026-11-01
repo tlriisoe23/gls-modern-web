@@ -312,3 +312,65 @@ def test_generate_schedule_accepts_date_object():
 
 def test_not_found_error_str_is_clean():
     assert str(ge.NotFoundError("League 5 not found")) == "League 5 not found"
+
+def test_field_points_with_legacy_and_new_columns(monkeypatch):
+    import sqlite3
+    from app import match_engine
+
+    entries = {
+        1: {"PlayerName": "P1", "Net": 30, "Division": "A", "played": True, "IndividualPts": 0, "holes_won": 0, "Gross": 40},
+        2: {"PlayerName": "P2", "Net": 35, "Division": "A", "played": True, "IndividualPts": 0, "holes_won": 0, "Gross": 45}
+    }
+
+    def fake_load_week_entries(*args):
+        return entries
+
+    def fake_matchsetup_pairs(*args):
+        return []
+
+    def fake_resolve_pairs(*args):
+        return [], ""
+
+    monkeypatch.setattr(match_engine, "load_week_entries", fake_load_week_entries)
+    monkeypatch.setattr(match_engine, "matchsetup_pairs", fake_matchsetup_pairs)
+    monkeypatch.setattr(match_engine, "resolve_pairs", fake_resolve_pairs)
+
+    def fake_load_league_context_new(conn, lid):
+        return {
+            "rules": {"FieldTopPts": 10.0, "FieldStepPts": 2.0},
+            "divisions": ["A"],
+            "scoring_mode_name": "x",
+            "adjust_mode_name": "x",
+            "num_man_teams": 1,
+            "num_man_teams": 1,
+            "teams": {},
+            "league": {}
+        }
+
+    monkeypatch.setattr(match_engine, "load_league_context", fake_load_league_context_new)
+
+    conn = sqlite3.connect(":memory:")
+    res_new = match_engine.compute_week(conn, 1, 1)
+
+    def fake_load_league_context_legacy(conn, lid):
+        return {
+            "rules": {"IndPtsNetField": 10.0, "IndNetFieldDiff": 2.0},
+            "divisions": ["A"],
+            "scoring_mode_name": "x",
+            "adjust_mode_name": "x",
+            "num_man_teams": 1,
+            "num_man_teams": 1,
+            "teams": {},
+            "league": {}
+        }
+
+    monkeypatch.setattr(match_engine, "load_league_context", fake_load_league_context_legacy)
+
+    res_legacy = match_engine.compute_week(conn, 1, 1)
+
+    # Both should assign 10.0 pts to the winner (P1, Net 30) and 8.0 to P2 (Net 35)
+    fld_new = {c["PlayerID"]: c["FieldPts"] for c in res_new["field_points"]}
+    fld_legacy = {c["PlayerID"]: c["FieldPts"] for c in res_legacy["field_points"]}
+
+    assert fld_new == {1: 10.0, 2: 8.0}
+    assert fld_legacy == {1: 10.0, 2: 8.0}

@@ -227,6 +227,8 @@ def load_league_context(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
 def rules_summary(ctx: dict[str, Any]) -> dict[str, Any]:
     r = ctx["rules"]
     g = lambda k: float(r.get(k) or 0)  # noqa: E731
+    top = g("FieldTopPts") or g("IndPtsNetField")
+    step = g("FieldStepPts") or g("IndNetFieldDiff")
     mode = ctx["scoring_mode_name"]
     lines = []
     if mode == "nines_plus_match":
@@ -240,14 +242,20 @@ def rules_summary(ctx: dict[str, Any]) -> dict[str, Any]:
             lines.append(f"{g('IndPtsNetMatch'):g} pts for low net round (ties split)")
         if g("IndPtsActMatch"):
             lines.append(f"{g('IndPtsActMatch'):g} pts for low gross round")
-    if g("FieldTopPts"):
-        lines.append(f"Field points {g('FieldTopPts'):g} / -{g('FieldStepPts'):g} per place on net")
+    if top:
+        lines.append(f"Field points {top:g} / -{step:g} per place on net")
     if g("TeamPtsNetMatch"):
         lines.append(f"Team: {g('TeamPtsNetMatch'):g} pts low team net")
     if g("TeamPtsHolesMatch"):
         lines.append(f"Team: {g('TeamPtsHolesMatch'):g} pts aggregate net holes won")
     if g("PlayerForfeit"):
         lines.append(f"Forfeit: opponent receives {g('PlayerForfeit'):g}")
+    rule_vals = {k: r.get(k) for k in (
+        "IndPtsNet", "IndPtsAct", "IndPtsNetMatch", "IndPtsActMatch", "IndPtsHolesMatch", "IndActHolesMatch",
+        "FieldTopPts", "FieldStepPts", "TeamPtsNet", "TeamPtsNetMatch", "TeamPtsActMatch", "TeamPtsHolesMatch",
+        "PlayerForfeit", "TeamForfeit", "PresentPlayerPts", "PresentTeamPts", "UseIndPts", "IndSubPts")}
+    rule_vals["IndPtsNetField"] = r.get("IndPtsNetField")
+    rule_vals["IndNetFieldDiff"] = r.get("IndNetFieldDiff")
     return {
         "scoring_mode": ctx["scoring_mode"],
         "scoring_mode_name": mode,
@@ -261,10 +269,7 @@ def rules_summary(ctx: dict[str, Any]) -> dict[str, Any]:
         "num_man_teams": ctx["num_man_teams"],
         "sub_percent": ctx["league"].get("SubPercent"),
         "human_rules": lines,
-        "rule_values": {k: r.get(k) for k in (
-            "IndPtsNet", "IndPtsAct", "IndPtsNetMatch", "IndPtsActMatch", "IndPtsHolesMatch", "IndActHolesMatch",
-            "FieldTopPts", "FieldStepPts", "TeamPtsNet", "TeamPtsNetMatch", "TeamPtsActMatch", "TeamPtsHolesMatch",
-            "PlayerForfeit", "TeamForfeit", "PresentPlayerPts", "PresentTeamPts", "UseIndPts", "IndSubPts")},
+        "rule_values": rule_vals,
     }
 
 
@@ -584,14 +589,16 @@ def compute_week(conn: sqlite3.Connection, lid: int, week_num: int) -> dict[str,
 
     # Field points (per division when the league uses flights)
     fld: dict[int, float] = {}
-    if g("FieldTopPts") > 0:
+    top = g("FieldTopPts") or g("IndPtsNetField")
+    step = g("FieldStepPts") or g("IndNetFieldDiff")
+    if top > 0:
         groups: dict[Any, list[tuple[int, float]]] = {}
         for pid, e in entries.items():
             if e["played"]:
                 key = e.get("Division") if len(ctx["divisions"]) > 1 else None
                 groups.setdefault(key, []).append((pid, e["Net"]))
         for grp in groups.values():
-            fld.update(field_points(grp, g("FieldTopPts"), g("FieldStepPts")))
+            fld.update(field_points(grp, top, step))
 
     # Team results
     team_results = []

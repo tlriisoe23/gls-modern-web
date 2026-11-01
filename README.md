@@ -16,7 +16,7 @@ Replaces the 1990s 32-bit Visual Basic 6.0 executable (`Gls90.exe` + `SPR32X60.o
    - **Handicap Stroke Allocation (`strokes_on_hole`)**: Allocates handicap strokes per hole using `CourseHandicap` (`Hole01Cap..Hole18Cap`) for both 9-hole and 18-hole leagues.
    - **Equitable Stroke Control (`apply_esc_cap` + `*AdjScores` Sync)**: Supports both Double Bogey Max (`AdjustScores=1`) and USGA Handicap ESC (`AdjustScores=2`), automatically writing adjusted hole scores into `*AdjScores`.
    - **Modified Stableford (`hole_stableford_pts`)**: Computes per-round Gross & Net Stableford points.
-   - **Automated Head-to-Head Match Play (`auto_score_week_matches`)**: Reads weekly player pairings from `*MatchSetup` (`ID1..ID16`) or auto-pairs opposing teams from `*Schedule`, awards `IndPtsNet` per hole with `0.5x` tie-splitting on halved holes and halved matches, computes Individual Flight `FieldPts` (`IndPtsNetField` / `IndNetFieldDiff`), updates `*TeamResults`, and rolls up season totals into `*Players.Points` and `*Teams.Points`.
+   - **Automated Head-to-Head Match Play (`auto_score_week_matches`)**: Reads weekly player pairings from `*MatchSetup` (`ID1..ID16`) or auto-pairs opposing teams from `*Schedule`, awards `IndPtsNet` per hole with `0.5x` tie-splitting on halved holes and halved matches, computes Individual Flight `FieldPts` (`FieldTopPts` / `FieldStepPts`), updates `*TeamResults`, and rolls up season totals into `*Players.Points` and `*Teams.Points`.
 
 3. **6 Workspaces + On-Course Mobile Caddy + Printable Clubhouse Sheet**:
    - **🏆 1. Standings & Leaderboards**: Team Standings, Individual Player Leaderboard, and ground-truth `LeagueRules` summary.

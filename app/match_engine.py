@@ -6,7 +6,7 @@ weekly scoring pipeline.  Everything in this module is driven by the real schema
   Leagues         LeagueHoles, NumManTeams, LeagueScoring, AdjustScores, Divisions, Div1..Div4,
                   FirstTeeTime, MinsBetweenGroups, SubPercent
   LeagueRules     IndPtsNet, IndPtsAct, IndPtsNetMatch, IndPtsActMatch, IndPtsHolesMatch,
-                  IndActHolesMatch, IndPtsNetField, IndNetFieldDiff, TeamPtsNetMatch,
+                  IndActHolesMatch, FieldTopPts, FieldStepPts, TeamPtsNetMatch,
                   TeamPtsActMatch, TeamPtsHolesMatch, PlayerForfeit, PresentPlayerPts,
                   UseIndPts, IndSubPts
   StablefordPts   Net/Act DEagle..Triple point matrix (all-zero => Modified Stableford default)
@@ -240,8 +240,8 @@ def rules_summary(ctx: dict[str, Any]) -> dict[str, Any]:
             lines.append(f"{g('IndPtsNetMatch'):g} pts for low net round (ties split)")
         if g("IndPtsActMatch"):
             lines.append(f"{g('IndPtsActMatch'):g} pts for low gross round")
-    if g("IndPtsNetField"):
-        lines.append(f"Field points {g('IndPtsNetField'):g} / -{g('IndNetFieldDiff'):g} per place on net")
+    if g("FieldTopPts"):
+        lines.append(f"Field points {g('FieldTopPts'):g} / -{g('FieldStepPts'):g} per place on net")
     if g("TeamPtsNetMatch"):
         lines.append(f"Team: {g('TeamPtsNetMatch'):g} pts low team net")
     if g("TeamPtsHolesMatch"):
@@ -263,7 +263,7 @@ def rules_summary(ctx: dict[str, Any]) -> dict[str, Any]:
         "human_rules": lines,
         "rule_values": {k: r.get(k) for k in (
             "IndPtsNet", "IndPtsAct", "IndPtsNetMatch", "IndPtsActMatch", "IndPtsHolesMatch", "IndActHolesMatch",
-            "IndPtsNetField", "IndNetFieldDiff", "TeamPtsNet", "TeamPtsNetMatch", "TeamPtsActMatch", "TeamPtsHolesMatch",
+            "FieldTopPts", "FieldStepPts", "TeamPtsNet", "TeamPtsNetMatch", "TeamPtsActMatch", "TeamPtsHolesMatch",
             "PlayerForfeit", "TeamForfeit", "PresentPlayerPts", "PresentTeamPts", "UseIndPts", "IndSubPts")},
     }
 
@@ -584,14 +584,14 @@ def compute_week(conn: sqlite3.Connection, lid: int, week_num: int) -> dict[str,
 
     # Field points (per division when the league uses flights)
     fld: dict[int, float] = {}
-    if g("IndPtsNetField") > 0:
+    if g("FieldTopPts") > 0:
         groups: dict[Any, list[tuple[int, float]]] = {}
         for pid, e in entries.items():
             if e["played"]:
                 key = e.get("Division") if len(ctx["divisions"]) > 1 else None
                 groups.setdefault(key, []).append((pid, e["Net"]))
         for grp in groups.values():
-            fld.update(field_points(grp, g("IndPtsNetField"), g("IndNetFieldDiff")))
+            fld.update(field_points(grp, g("FieldTopPts"), g("FieldStepPts")))
 
     # Team results
     team_results = []

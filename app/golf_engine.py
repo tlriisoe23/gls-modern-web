@@ -2,7 +2,7 @@
 - 9-hole & 18-hole Course Par, Yardage, and Handicap Stroke Allocation
 - Equitable Stroke Control (ESC / *AdjScores) & Modified Stableford calculation
 - Automated Head-to-Head Match Play (*MatchSetup ID1..ID16 + *Schedule auto-pairing, 0.5x tie-splitting)
-- Individual Flight Field Points (IndPtsNetField / IndNetFieldDiff for Flight leagues like League 11)
+- Individual Flight Field Points (FieldTopPts / FieldStepPts for Flight leagues like League 11)
 - Weekly Skins (Gross & Net), Team Match Rollups (*TeamResults), and Printable Clubhouse Report
 - Configurable League Handicap Formula (PercentHandicap, MaximumHandicap, ESC-adjusted rounds)
 - Round-Robin Schedule generation from the 25 GLS9 templates (4team..52team)."""
@@ -385,7 +385,7 @@ def _compute_matchups(
 
 
 def _compute_field_points(scorecards: list[dict[str, Any]], rules_summary: dict[str, Any]) -> dict[int, float]:
-    """Compute stepped Field Points (IndPtsNetField / IndNetFieldDiff) with tie-splitting (CDX-F2)."""
+    """Compute stepped Field Points (FieldTopPts / FieldStepPts) with tie-splitting (CDX-F2)."""
     top_pts = float(rules_summary.get("FieldTopPts") or 0.0)
     step = float(rules_summary.get("FieldStepPts") or 2.0)
     if top_pts <= 0:

@@ -4,9 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Golf League Secretary — Modern Web Edition (GLS9 Clean-Room)</title>
+  <meta name="description" content="Golf League Secretary: standings, scorecards, match play, schedules and courses." />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to main content</a>
   <header class="topbar">
     <div class="brand">
       <div class="brand-badge" aria-hidden="true">GLS</div>
@@ -18,26 +20,27 @@
 
     <div class="toolbar">
       <label for="leagueSelect" class="brand-sub">Active League:</label>
-      <select id="leagueSelect" aria-label="Select Golf League"></select>
+      <select id="leagueSelect"></select>
 
-      <button id="recalcHcpBtn" class="gold" title="Recompute Player & Team Handicaps using League PercentHandicap & ESC-Adjusted Scores">
+      <button id="recalcHcpBtn" type="button" class="gold" title="Recompute Player & Team Handicaps using League PercentHandicap & ESC-Adjusted Scores">
         ⚡ Recalculate Handicaps
       </button>
 
-      <button id="printSheetBtn" title="Print Weekly Clubhouse Standings, Matchups & Skins Sheet (frmPreview replacement)">
+      <button id="printSheetBtn" type="button" title="Print Weekly Clubhouse Standings, Matchups & Skins Sheet (frmPreview replacement)">
         🖨️ Print Clubhouse Sheet
       </button>
 
-      <label class="btn" for="mdbUploadInput" title="Drop or select any GolfSoft Gls90db.mdb file to migrate all 60 tables">
-        📂 Import .mdb
+      <label class="btn file-btn" title="Select any GolfSoft Gls90db.mdb file to migrate all 60 tables">
+        <span aria-hidden="true">📂</span> Import .mdb
+        <input id="mdbUploadInput" type="file" accept=".mdb,.accdb" class="sr-only" />
       </label>
-      <input id="mdbUploadInput" type="file" accept=".mdb" class="hidden" />
 
       <a class="btn primary" href="/api/export/sqlite" download="gls9_modern.db">
         ⬇ Download SQLite (.db)
       </a>
 
-      <select id="themeSelect" aria-label="Color Theme">
+      <label for="themeSelect" class="sr-only">Color theme</label>
+      <select id="themeSelect">
         <option value="emerald-dark">Theme: Augusta Emerald (Dark)</option>
         <option value="zinc-dark">Theme: Zinc Pro (Dark)</option>
         <option value="slate-light">Theme: Clubhouse Daylight (Light)</option>
@@ -47,20 +50,22 @@
     </div>
   </header>
 
-  <nav class="tabs-bar" role="tablist" aria-label="GLS9 Workspaces">
-    <button class="tab-btn active" data-tab="standings" role="tab" aria-selected="true">🏆 1. Standings &amp; Leaderboards</button>
-    <button class="tab-btn" data-tab="scorecard" role="tab" aria-selected="false">📝 2. Weekly Scorecard &amp; Skins</button>
-    <button class="tab-btn" data-tab="roster" role="tab" aria-selected="false">👥 3. Roster, Subs &amp; Dues</button>
-    <button class="tab-btn" data-tab="schedule" role="tab" aria-selected="false">📅 4. Schedule &amp; Round-Robin</button>
-    <button class="tab-btn" data-tab="courses" role="tab" aria-selected="false">⛳ 5. Golf Courses (18/36-Hole)</button>
-    <button class="tab-btn" data-tab="explorer" role="tab" aria-selected="false">🗄️ 6. Raw .mdb Explorer (60 Tables)</button>
-  </nav>
+  <div class="tabs-bar">
+    <div role="tablist" aria-label="GLS9 Workspaces" class="tabs-list">
+    <button class="tab-btn active" id="tabbtn-standings" type="button" data-tab="standings" role="tab" aria-selected="true" aria-controls="tab-standings" tabindex="0">🏆 1. Standings &amp; Leaderboards</button>
+    <button class="tab-btn" id="tabbtn-scorecard" type="button" data-tab="scorecard" role="tab" aria-selected="false" aria-controls="tab-scorecard" tabindex="-1">📝 2. Weekly Scorecard &amp; Skins</button>
+    <button class="tab-btn" id="tabbtn-roster" type="button" data-tab="roster" role="tab" aria-selected="false" aria-controls="tab-roster" tabindex="-1">👥 3. Roster, Subs &amp; Dues</button>
+    <button class="tab-btn" id="tabbtn-schedule" type="button" data-tab="schedule" role="tab" aria-selected="false" aria-controls="tab-schedule" tabindex="-1">📅 4. Schedule &amp; Round-Robin</button>
+    <button class="tab-btn" id="tabbtn-courses" type="button" data-tab="courses" role="tab" aria-selected="false" aria-controls="tab-courses" tabindex="-1">⛳ 5. Golf Courses (18/36-Hole)</button>
+    <button class="tab-btn" id="tabbtn-explorer" type="button" data-tab="explorer" role="tab" aria-selected="false" aria-controls="tab-explorer" tabindex="-1">🗄️ 6. Raw .mdb Explorer (60 Tables)</button>
+    </div>
+  </div>
 
-  <main class="container">
+  <main id="main" class="container" tabindex="-1">
     <section id="kpiStrip" class="kpi-strip" aria-label="League Summary KPIs"></section>
 
     <!-- TAB 1: STANDINGS & LEADERBOARDS -->
-    <section id="tab-standings" class="tab-pane">
+    <section id="tab-standings" class="tab-pane" role="tabpanel" aria-labelledby="tabbtn-standings" tabindex="0">
       <div class="grid-2">
         <div class="panel">
           <div class="panel-header">
@@ -69,16 +74,17 @@
           </div>
           <div class="table-wrap">
             <table id="teamsTable">
+            <caption class="sr-only">Team standings</caption>
               <thead>
                 <tr>
-                  <th>Rank</th>
-                  <th>Team ID</th>
-                  <th>Team Name</th>
-                  <th>Div</th>
-                  <th class="num">Team Hcp</th>
-                  <th class="num">Prev Pts</th>
-                  <th class="num">Total Pts</th>
-                  <th class="num">Money Won</th>
+                  <th scope="col">Rank</th>
+                  <th scope="col">Team ID</th>
+                  <th scope="col">Team Name</th>
+                  <th scope="col">Div</th>
+                  <th scope="col" class="num">Team Hcp</th>
+                  <th scope="col" class="num">Prev Pts</th>
+                  <th scope="col" class="num">Total Pts</th>
+                  <th scope="col" class="num">Money Won</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -93,15 +99,16 @@
           </div>
           <div class="table-wrap">
             <table id="playersLeaderTable">
+            <caption class="sr-only">Individual player leaderboard</caption>
               <thead>
                 <tr>
-                  <th>Rank</th>
-                  <th>Player</th>
-                  <th>Team</th>
-                  <th class="num">Handicap</th>
-                  <th class="num">Prev Pts</th>
-                  <th class="num">Total Pts</th>
-                  <th class="num">Prize Money</th>
+                  <th scope="col">Rank</th>
+                  <th scope="col">Player</th>
+                  <th scope="col">Team</th>
+                  <th scope="col" class="num">Handicap</th>
+                  <th scope="col" class="num">Prev Pts</th>
+                  <th scope="col" class="num">Total Pts</th>
+                  <th scope="col" class="num">Prize Money</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -119,30 +126,30 @@
     </section>
 
     <!-- TAB 2: WEEKLY SCORECARD & SKINS -->
-    <section id="tab-scorecard" class="tab-pane hidden">
+    <section id="tab-scorecard" class="tab-pane hidden" role="tabpanel" aria-labelledby="tabbtn-scorecard" tabindex="0">
       <div class="panel">
         <div class="panel-header">
           <div class="form-row">
             <h2>Hole-by-Hole Scorecard, ESC &amp; Match Points (`*PlayerResults` + `*AdjScores`)</h2>
             <label for="weekSelect">Week:</label>
-            <select id="weekSelect" aria-label="Select Week Number"></select>
+            <select id="weekSelect"></select>
             <span id="weekCourseBadge" class="badge"></span>
           </div>
           <div class="form-row">
-            <button id="toggleCaddyBtn" class="gold">📱 Toggle Mobile Caddy Mode</button>
-            <button id="autoScoreMatchesBtn" class="primary">⚔️ Auto-Score Week Matches &amp; Standings</button>
+            <button id="toggleCaddyBtn" type="button" class="gold" aria-expanded="false" aria-controls="caddyModeBox">📱 Toggle Mobile Caddy Mode</button>
+            <button id="autoScoreMatchesBtn" type="button" class="primary">⚔️ Auto-Score Week Matches &amp; Standings</button>
           </div>
         </div>
 
-        <div id="caddyModeBox" class="caddy-box hidden">
+        <div id="caddyModeBox" class="caddy-box hidden" role="region" aria-label="Mobile caddy quick entry">
           <div class="form-row" style="justify-content:space-between">
             <div class="form-row">
               <strong>📱 On-Course Mobile Caddy Quick Entry:</strong>
               <label for="caddyPlayerSelect">Golfer:</label>
-              <select id="caddyPlayerSelect" aria-label="Select Golfer for Mobile Entry"></select>
+              <select id="caddyPlayerSelect"></select>
               <label for="caddyHoleSelect">Hole:</label>
-              <select id="caddyHoleSelect" aria-label="Select Hole for Mobile Entry"></select>
-              <span id="caddyHoleMeta" class="badge gold"></span>
+              <select id="caddyHoleSelect"></select>
+              <span id="caddyHoleMeta" class="badge gold" aria-live="polite"></span>
             </div>
             <div class="form-row">
               <button type="button" class="caddy-btn" data-rel="-1">🦅 Birdie (-1)</button>
@@ -156,6 +163,7 @@
 
         <div class="table-wrap">
           <table id="scorecardTable">
+            <caption class="sr-only">Hole-by-hole scorecard for the selected week</caption>
             <thead></thead>
             <tbody></tbody>
           </table>
@@ -187,21 +195,29 @@
     </section>
 
     <!-- TAB 3: ROSTER, SUBS & DUES -->
-    <section id="tab-roster" class="tab-pane hidden">
+    <section id="tab-roster" class="tab-pane hidden" role="tabpanel" aria-labelledby="tabbtn-roster" tabindex="0">
       <div class="panel">
         <div class="panel-header">
           <h2>Add / Update League Player (`frmPlayer2`)</h2>
         </div>
-        <form id="playerForm" class="form-row">
+        <form id="playerForm" class="form-row" aria-label="Add or update league player">
           <input type="hidden" id="pfPlayerID" />
-          <input type="text" id="pfFirst" placeholder="First Name" required />
-          <input type="text" id="pfLast" placeholder="Last Name" required />
-          <input type="number" id="pfTeam" placeholder="Team ID (e.g. 1)" value="1" min="1" style="width:110px" required />
-          <input type="number" step="0.1" id="pfHcp" placeholder="Handicap" value="8.0" style="width:110px" required />
+          <label for="pfFirst" class="sr-only">First name</label>
+          <input type="text" id="pfFirst" placeholder="First Name" required maxlength="40" autocomplete="given-name" />
+          <label for="pfLast" class="sr-only">Last name</label>
+          <input type="text" id="pfLast" placeholder="Last Name" required maxlength="40" autocomplete="family-name" />
+          <label for="pfTeam" class="sr-only">Team ID</label>
+          <input type="number" id="pfTeam" placeholder="Team ID (e.g. 1)" value="1" min="1" style="width:110px" required max="99" />
+          <label for="pfHcp" class="sr-only">Handicap</label>
+          <input type="number" step="0.1" id="pfHcp" placeholder="Handicap" value="8.0" style="width:110px" required min="-10" max="54" />
+          <label for="pfPts" class="sr-only">Points</label>
           <input type="number" step="0.5" id="pfPts" placeholder="Points" value="0" style="width:100px" />
+          <label for="pfMoney" class="sr-only">Money ($)</label>
           <input type="number" step="0.01" id="pfMoney" placeholder="Money ($)" value="0" style="width:110px" />
-          <input type="email" id="pfEmail" placeholder="Email" />
-          <input type="text" id="pfPhone" placeholder="Phone" />
+          <label for="pfEmail" class="sr-only">Email</label>
+          <input type="email" id="pfEmail" placeholder="Email" maxlength="254" autocomplete="email" />
+          <label for="pfPhone" class="sr-only">Phone</label>
+          <input type="text" id="pfPhone" placeholder="Phone" maxlength="32" autocomplete="tel" />
           <button type="submit" class="primary">💾 Save Player</button>
         </form>
       </div>
@@ -213,14 +229,15 @@
           </div>
           <div class="table-wrap">
             <table id="subsTable">
+            <caption class="sr-only">Substitute roster</caption>
               <thead>
                 <tr>
-                  <th>Sub ID</th>
-                  <th>Name</th>
-                  <th class="num">Handicap</th>
-                  <th class="num">Points</th>
-                  <th class="num">Money</th>
-                  <th>Phone</th>
+                  <th scope="col">Sub ID</th>
+                  <th scope="col">Name</th>
+                  <th scope="col" class="num">Handicap</th>
+                  <th scope="col" class="num">Points</th>
+                  <th scope="col" class="num">Money</th>
+                  <th scope="col">Phone</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -234,15 +251,16 @@
           </div>
           <div class="table-wrap">
             <table id="feesTable">
+            <caption class="sr-only">League fees and dues ledger</caption>
               <thead>
                 <tr>
-                  <th>Player ID</th>
-                  <th>Player Name</th>
-                  <th class="num">Green Fees</th>
-                  <th class="num">League Fee</th>
-                  <th class="num">Skins Fee</th>
-                  <th class="num">Banquet Fee</th>
-                  <th class="num">Extra Fee</th>
+                  <th scope="col">Player ID</th>
+                  <th scope="col">Player Name</th>
+                  <th scope="col" class="num">Green Fees</th>
+                  <th scope="col" class="num">League Fee</th>
+                  <th scope="col" class="num">Skins Fee</th>
+                  <th scope="col" class="num">Banquet Fee</th>
+                  <th scope="col" class="num">Extra Fee</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -253,7 +271,7 @@
     </section>
 
     <!-- TAB 4: SCHEDULE & ROUND-ROBIN -->
-    <section id="tab-schedule" class="tab-pane hidden">
+    <section id="tab-schedule" class="tab-pane hidden" role="tabpanel" aria-labelledby="tabbtn-schedule" tabindex="0">
       <div class="panel">
         <div class="panel-header">
           <h2>Season Schedule &amp; Round-Robin Generator (`*Schedule` + `Schedules/*.csv`)</h2>
@@ -262,20 +280,21 @@
             <input id="schedWeeksInput" type="number" value="17" min="1" max="52" style="width:75px" />
             <label for="schedStartInput">Start Date:</label>
             <input id="schedStartInput" type="date" value="2026-05-05" />
-            <button id="genSchedBtn" class="primary">🔄 Generate Round-Robin Schedule</button>
+            <button id="genSchedBtn" type="button" class="primary">🔄 Generate Round-Robin Schedule</button>
           </div>
         </div>
         <div class="table-wrap">
           <table id="scheduleTable">
+            <caption class="sr-only">Season schedule</caption>
             <thead>
               <tr>
-                <th>Week</th>
-                <th>Date</th>
-                <th>Half</th>
-                <th>Weather</th>
-                <th>Match 1 Pairing</th>
-                <th>Match 2 Pairing</th>
-                <th>Action</th>
+                <th scope="col">Week</th>
+                <th scope="col">Date</th>
+                <th scope="col">Half</th>
+                <th scope="col">Weather</th>
+                <th scope="col">Match 1 Pairing</th>
+                <th scope="col">Match 2 Pairing</th>
+                <th scope="col">Action</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -285,22 +304,24 @@
     </section>
 
     <!-- TAB 5: GOLF COURSES -->
-    <section id="tab-courses" class="tab-pane hidden">
+    <section id="tab-courses" class="tab-pane hidden" role="tabpanel" aria-labelledby="tabbtn-courses" tabindex="0">
       <div id="coursesContainer"></div>
     </section>
 
     <!-- TAB 6: RAW .MDB EXPLORER -->
-    <section id="tab-explorer" class="tab-pane hidden">
+    <section id="tab-explorer" class="tab-pane hidden" role="tabpanel" aria-labelledby="tabbtn-explorer" tabindex="0">
       <div class="panel">
         <div class="panel-header">
           <div class="form-row">
             <h2>Microsoft Jet `.mdb` Table Explorer (`frmDbViewer` Replacement — 60 Migrated Tables)</h2>
-            <select id="rawTableSelect" aria-label="Select Database Table"></select>
+            <label for="rawTableSelect" class="sr-only">Database table</label>
+            <select id="rawTableSelect"></select>
             <span id="rawTableCountBadge" class="badge"></span>
           </div>
         </div>
         <div class="table-wrap">
           <table id="rawTableGrid">
+            <caption class="sr-only">Raw database table rows (first 200)</caption>
             <thead></thead>
             <tbody></tbody>
           </table>
@@ -309,7 +330,8 @@
     </section>
   </main>
 
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="toastAlert" class="sr-only" role="alert" aria-atomic="true"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>

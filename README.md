@@ -32,7 +32,26 @@ Replaces the 1990s 32-bit Visual Basic 6.0 executable (`Gls90.exe` + `SPR32X60.o
 ## 🚀 Quickstart & Verification
 
 ```bash
-PYTHONPATH=. pytest -q tests/
+pip install fastapi uvicorn httpx python-multipart pytest
+PYTHONPATH=. pytest -q tests/          # hermetic: runs on a temp copy of data/gls9.db
 uvicorn app.main:app --host 0.0.0.0 --port 8104
-CHROMIUM_PATH=/usr/bin/chromium node tests/spa_smoke.mjs
+node tests/spa_smoke.mjs               # optional CHROMIUM_PATH=/usr/bin/chromium
 ```
+
+Test layout:
+
+| File | Covers |
+| --- | --- |
+| `tests/test_gls9.py` | End-to-end API flow (plus the original `.mdb` migration flow when `/tmp/GLS9` exists) |
+| `tests/test_engine_unit.py` | Stroke allocation, ESC, Stableford, match play, field points, schedule generation |
+| `tests/test_api_hardening.py` | Input validation, 404/422 handling, upload limits, security headers, connection hygiene |
+| `tests/test_regressions.py` | One test per edge-case bug fixed in the FSA-15 audit |
+| `tests/test_spa_browser.py` + `spa_a11y_xss.mjs` | Headless-browser XSS and WCAG 2.2 AA checks (skipped without Node + Playwright). Set `AXE_CORE_PATH=.../axe-core/axe.min.js` to add a full axe-core scan of every tab in all 5 themes. |
+
+## 🔒 Security & Accessibility Notes (FSA-15 audit)
+
+- All API inputs are bounded and validated (hole scores 0–20, ≤18 holes, weeks 1–52, ISO dates, name/email/phone rules). Unknown leagues or players return 404 and never write partial rows.
+- The SPA renders every server value through an auto-escaping `html` template tag. A strict CSP (`script-src 'self'`), `nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer` are sent on the SPA and API.
+- `.mdb` uploads are size-capped (`GLS9_MAX_MDB_BYTES`, 64 MB default) and signature-checked. They are migrated into a scratch DB and swapped in atomically, so a failed import never half-overwrites live data.
+- The UI targets WCAG 2.2 AA: skip link, keyboard-operable ARIA tabs, labelled controls, AA contrast in all 5 themes, 320 px reflow, focus not obscured by the sticky header, and reduced-motion support.
+- **There is no authentication.** Run the app only on a trusted network: anyone who can reach it can edit data, import a database or download `/api/export/sqlite`, which includes player emails and phone numbers.

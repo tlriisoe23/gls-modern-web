@@ -1,9 +1,24 @@
 import { createRequire } from "node:module";
-const req = createRequire(process.env.UI_AUDIT_PATH || "/paperclip/.hermes/ui-tools/ui-audit.mjs");
-const { chromium } = req("playwright-core");
+
+// Prefer a locally resolvable Playwright; fall back to the legacy UI-audit toolchain path.
+function loadChromium() {
+  const candidates = [import.meta.url, process.env.UI_AUDIT_PATH || "/paperclip/.hermes/ui-tools/ui-audit.mjs"];
+  for (const base of candidates) {
+    const req = createRequire(base);
+    for (const mod of ["playwright", "playwright-core"]) {
+      try {
+        return req(mod).chromium;
+      } catch {
+        /* try next */
+      }
+    }
+  }
+  throw new Error("playwright / playwright-core not found");
+}
+const chromium = loadChromium();
 
 const BASE_URL = process.env.BASE_URL || "http://127.0.0.1:8104";
-const CHROMIUM_PATH = process.env.CHROMIUM_PATH || "/usr/local/bin/chromium";
+const CHROMIUM_PATH = process.env.CHROMIUM_PATH || "";
 
 const checks = [];
 function record(name, ok, detail = "") {
@@ -14,7 +29,7 @@ function record(name, ok, detail = "") {
 }
 
 const browser = await chromium.launch({
-  executablePath: CHROMIUM_PATH,
+  ...(CHROMIUM_PATH ? { executablePath: CHROMIUM_PATH } : {}),
   args: ["--no-sandbox", "--disable-gpu"],
 });
 

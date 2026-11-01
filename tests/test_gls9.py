@@ -1,20 +1,18 @@
-"""Tests for Golf League Secretary (GLS9) Clean-Room Modern Web Studio V2."""
+"""End-to-end tests for Golf League Secretary (GLS9) Clean-Room Modern Web Studio V2."""
 from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
 
+GLS9_MDB = Path("/tmp/GLS9/Database/Gls90db.mdb")
+GLS9_SCHEDULES = Path("/tmp/GLS9/Schedules")
 
-def test_gls9_full_migration_and_v2_engine(tmp_path: Path):
-    db_file = tmp_path / "gls9_test.db"
-    mdb_file = Path("/tmp/GLS9/Database/Gls90db.mdb")
-    sched_dir = Path("/tmp/GLS9/Schedules")
-    app = create_app(db_path=db_file, mdb_seed=mdb_file, schedules_dir=sched_dir)
-    client = TestClient(app)
 
+def _run_full_flow(client: TestClient) -> None:
     # 1. Health & migration count
     r = client.get("/api/health")
     assert r.status_code == 200
@@ -30,8 +28,7 @@ def test_gls9_full_migration_and_v2_engine(tmp_path: Path):
     assert r.status_code == 200
     lgs = r.json()["leagues"]
     assert len(lgs) == 3
-    lids = {x["LeagueID"] for x in lgs}
-    assert lids == {9, 10, 11}
+    assert {x["LeagueID"] for x in lgs} == {9, 10, 11}
 
     # 3. Standings & Ground-Truth Rules Summary for League 10 (AGY-F1)
     r = client.get("/api/leagues/10/standings")
@@ -56,33 +53,25 @@ def test_gls9_full_migration_and_v2_engine(tmp_path: Path):
     assert any(c["Gross"] > 0 for c in sc["scorecards"])
     assert any("StablefordNet" in c and "AdjGross" in c for c in sc["scorecards"])
 
-    # 5. Save Hole-by-Hole Score with blow-up hole (10 on Par 4) to verify ESC cap & *AdjScores sync (AGY-F3, CDX-F3)
+    # 5. Save Hole-by-Hole Score with blow-up hole (10 on Par 4) to verify ESC cap & *AdjScores sync
     holes = [10, 4, 3, 5, 4, 4, 3, 4, 5, 4, 4, 3, 5, 4, 4, 3, 4, 5]
     r = client.post(
         "/api/leagues/10/week/1/scores",
-        json={
-            "PlayerID": 1,
-            "holes": holes,
-            "NumPutts": 31,
-            "GreensInRegulation": 11,
-            "IndividualPts": 12.5,
-        },
+        json={"PlayerID": 1, "holes": holes, "NumPutts": 31, "GreensInRegulation": 11, "IndividualPts": 12.5},
     )
     assert r.status_code == 200
-    sc_after = r.json()
-    p1 = next(c for c in sc_after["scorecards"] if c["PlayerID"] == 1)
+    p1 = next(c for c in r.json()["scorecards"] if c["PlayerID"] == 1)
     assert p1["FrontNine"] == sum(holes[:9])
     assert p1["BackNine"] == sum(holes[9:18])
     assert p1["Gross"] == sum(holes)
     assert p1["AdjGross"] < p1["Gross"]
     assert p1["ESC_CappedStrokes"] > 0
 
-    # Verify *AdjScores table received the ESC-capped row
     r_adj = client.get("/api/tables/10AdjScores")
     assert r_adj.status_code == 200
     assert r_adj.json()["row_count"] > 0
 
-    # 6. Auto-Score Head-to-Head Matches (League 10) & Individual Field Points (League 11) (AGY-F2, CDX-F1, CDX-F2)
+    # 6. Auto-Score Head-to-Head Matches (League 10) & Individual Field Points (League 11)
     r = client.post("/api/leagues/10/week/1/auto-score-matches")
     assert r.status_code == 200
     assert len(r.json()["matchups"]) == 8
@@ -111,3 +100,15 @@ def test_gls9_full_migration_and_v2_engine(tmp_path: Path):
     assert r.status_code == 200
     assert "Toggle Mobile Caddy Mode" in r.text
     assert "Print Clubhouse Sheet" in r.text
+
+
+def test_gls9_full_flow_on_bundled_db(client: TestClient):
+    """Full API flow against a copy of the bundled sample DB (always runs)."""
+    _run_full_flow(client)
+
+
+@pytest.mark.skipif(not GLS9_MDB.exists(), reason="external GolfSoft GLS9 install (/tmp/GLS9) not present")
+def test_gls9_full_migration_and_v2_engine(tmp_path: Path):
+    """Original end-to-end test: migrate the real Gls90db.mdb then run the full flow."""
+    app = create_app(db_path=tmp_path / "gls9_test.db", mdb_seed=GLS9_MDB, schedules_dir=GLS9_SCHEDULES)
+    _run_full_flow(TestClient(app))

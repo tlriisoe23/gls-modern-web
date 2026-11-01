@@ -10,9 +10,62 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
+
+MAX_HOLE_SCORE = 20
+
+
+class NotFoundError(KeyError):
+    """A league / player / table referenced by the caller does not exist (HTTP 404)."""
+
+    def __str__(self) -> str:  # KeyError.__str__ would wrap the message in quotes
+        return str(self.args[0]) if self.args else "Not found"
+
+
+class InvalidInputError(ValueError):
+    """Caller-supplied data failed a business-rule check (HTTP 422)."""
+
+MAX_SCHEDULE_WEEKS = 52
+
+
+def round_half_up(value: float) -> int:
+    """Round to the nearest integer with .5 rounding away from zero (golf convention).
+
+    Python's built-in ``round`` uses banker's rounding (``round(12.5) == 12``), which
+    silently under-allocated handicap strokes for every x.5 handicap."""
+    v = float(value or 0)
+    if not math.isfinite(v):
+        return 0
+    return int(math.floor(abs(v) + 0.5)) * (1 if v >= 0 else -1)
+
+
+def safe_int(value: Any, default: int = 0) -> int:
+    """Coerce a DB/legacy value to int without raising on junk (e.g. '', 'N/A', 4.0)."""
+    if value is None or value == "":
+        return default
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(f):
+        return default
+    return int(f)
+
+
+def stroke_index_map(holes_meta: list[dict[str, Any]]) -> list[int]:
+    """Return each played hole's stroke index *relative to the holes being played* (1..n).
+
+    Course handicap ranks run 1..18 across the full course. A 9-hole league plays only
+    nine of them (e.g. front-nine ranks 1,3,5,..,17), so strokes must be allocated by the
+    hole's order among those nine. Ties / missing ranks fall back to hole order."""
+    order = sorted(range(len(holes_meta)), key=lambda i: (safe_int(holes_meta[i].get("handicap_rank"), 99), i))
+    ranks = [0] * len(holes_meta)
+    for pos, i in enumerate(order, start=1):
+        ranks[i] = pos
+    return ranks
 
 
 def rows_as_dicts(cur: sqlite3.Cursor) -> list[dict[str, Any]]:
@@ -55,17 +108,18 @@ def get_courses(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 def strokes_on_hole(player_hcp: float, hole_rank: int, num_holes: int = 18) -> int:
     """Calculate handicap strokes received on a hole given player handicap and hole rank."""
-    hcp = max(0, int(round(float(player_hcp or 0))))
+    hcp = max(0, round_half_up(player_hcp))
     if hcp <= 0:
         return 0
-    if num_holes == 9:
-        eff_rank = ((hole_rank - 1) // 2) + 1 if hole_rank > 9 else hole_rank
-        base = hcp // 9
-        rem = hcp % 9
-        return base + (1 if eff_rank <= rem else 0)
-    base = hcp // 18
-    rem = hcp % 18
-    return base + (1 if hole_rank <= rem else 0)
+    n = 9 if num_holes == 9 else 18
+    rank = safe_int(hole_rank, n)
+    if n == 9 and rank > 9:
+        # 18-hole course rank supplied for a 9-hole round: compress 1..18 -> 1..9.
+        rank = (rank + 1) // 2
+    rank = min(max(rank, 1), n)
+    base = hcp // n
+    rem = hcp % n
+    return base + (1 if rank <= rem else 0)
 
 
 def apply_esc_cap(score: int, par: int, player_hcp: float, adjust_mode: int = 1, num_holes: int = 18) -> int:
@@ -77,8 +131,9 @@ def apply_esc_cap(score: int, par: int, player_hcp: float, adjust_mode: int = 1,
         return score
     if adjust_mode == 1:
         return min(score, par + 2)
-    # USGA ESC (normalized to 18-hole equivalent handicap)
-    hcp18 = float(player_hcp or 0) * (2.0 if num_holes == 9 else 1.0)
+    # USGA ESC (normalized to 18-hole equivalent *course handicap*, a whole number:
+    # a 9.4 index plays as a 9 and must keep the double-bogey cap, not the 7 cap).
+    hcp18 = round_half_up(float(player_hcp or 0) * (2.0 if num_holes == 9 else 1.0))
     if hcp18 <= 9:
         cap = par + 2
     elif hcp18 <= 19:
@@ -92,9 +147,14 @@ def apply_esc_cap(score: int, par: int, player_hcp: float, adjust_mode: int = 1,
     return min(score, cap)
 
 
-def hole_stableford_pts(score: int, par: int) -> int:
-    """Modified Stableford points for a hole (Eagle+ = 4, Birdie = 2, Par = 1, Bogey = 0, Double+ = -1)."""
-    if score <= 0:
+def hole_stableford_pts(score: int, par: int, *, is_net: bool = False) -> int:
+    """Modified Stableford points for a hole
+    (Albatross+ = 5, Eagle = 4, Birdie = 2, Par = 1, Bogey = 0, Double+ = -1).
+
+    A gross score <= 0 means "not played" and scores 0. A *net* score can legitimately be
+    0 or negative (e.g. an ace on a hole where the player receives 2 strokes), so pass
+    ``is_net=True`` to score it on its merits."""
+    if score <= 0 and not is_net:
         return 0
     diff = score - par
     if diff <= -3:
@@ -151,7 +211,7 @@ def build_rules_summary(league: dict[str, Any], rules: dict[str, Any], fees: lis
 def get_league_standings(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
     leagues = rows_as_dicts(conn.execute('SELECT * FROM "Leagues" WHERE "LeagueID"=?', (lid,)))
     if not leagues:
-        raise KeyError(f"League {lid} not found")
+        raise NotFoundError(f"League {lid} not found")
     league = leagues[0]
     rules_rows = rows_as_dicts(conn.execute('SELECT * FROM "LeagueRules" WHERE "LeagueID"=?', (lid,)))
     rules = rules_rows[0] if rules_rows else {}
@@ -200,8 +260,8 @@ def _resolve_week_pairings(
         if rows:
             ms = rows[0]
             for i in range(1, 32, 2):
-                a = int(ms.get(f"ID{i}") or 0)
-                b = int(ms.get(f"ID{i+1}") or 0)
+                a = safe_int(ms.get(f"ID{i}"))
+                b = safe_int(ms.get(f"ID{i+1}"))
                 if a > 0 and b > 0:
                     pairs.append((a, b))
     if pairs:
@@ -235,12 +295,19 @@ def _compute_matchups(
     hole_pts = float(rules_summary.get("HolePts") or 1.0)
     match_bonus = float(rules_summary.get("IndMatchPts") or 2.0)
     matchups: list[dict[str, Any]] = []
+    stroke_idx = stroke_index_map(holes_meta)
+    seen: set[int] = set()
 
     for pid_a, pid_b in pairs:
+        # A player can never be paired with themselves, and may only appear in one
+        # match per week (corrupt *MatchSetup rows would otherwise double-award points).
+        if pid_a == pid_b or pid_a in seen or pid_b in seen:
+            continue
         ca = card_by_pid.get(pid_a)
         cb = card_by_pid.get(pid_b)
         if not ca or not cb:
             continue
+        seen.update((pid_a, pid_b))
         hcp_a = float(ca.get("Handicap") or 0)
         hcp_b = float(cb.get("Handicap") or 0)
         low_hcp = min(hcp_a, hcp_b)
@@ -261,8 +328,8 @@ def _compute_matchups(
                 sb = cb["holes"][idx]
                 if sa <= 0 or sb <= 0:
                     continue
-                str_a = strokes_on_hole(diff_a, hm["handicap_rank"], num_holes)
-                str_b = strokes_on_hole(diff_b, hm["handicap_rank"], num_holes)
+                str_a = strokes_on_hole(diff_a, stroke_idx[idx], num_holes)
+                str_b = strokes_on_hole(diff_b, stroke_idx[idx], num_holes)
                 net_a = sa - str_a
                 net_b = sb - str_b
                 if net_a < net_b:
@@ -348,6 +415,7 @@ def get_week_scorecard(conn: sqlite3.Connection, lid: int, week_num: int) -> dic
     num_holes = int(league.get("LeagueHoles") or 18)
     adjust_mode = int(league.get("AdjustScores") or 1)
     holes_meta = (course.get("holes") or [])[:num_holes]
+    stroke_idx = stroke_index_map(holes_meta)
 
     res_tbl = f"{lid}PlayerResults"
     sched_tbl = f"{lid}Schedule"
@@ -372,11 +440,10 @@ def get_week_scorecard(conn: sqlite3.Connection, lid: int, week_num: int) -> dic
         hole_strokes = []
         stable_gross = 0
         stable_net = 0
-        for hm in holes_meta:
+        for pos, hm in enumerate(holes_meta):
             h_idx = hm["hole"]
-            raw_s = r.get(str(h_idx))
-            val = int(raw_s) if raw_s not in (None, "", 0) else 0
-            st_rec = strokes_on_hole(hcp, hm["handicap_rank"], num_holes)
+            val = max(0, safe_int(r.get(str(h_idx))))
+            st_rec = strokes_on_hole(hcp, stroke_idx[pos], num_holes)
             net_val = (val - st_rec) if val > 0 else 0
             adj_val = apply_esc_cap(val, hm["par"], hcp, adjust_mode, num_holes)
             hole_scores.append(val)
@@ -385,13 +452,13 @@ def get_week_scorecard(conn: sqlite3.Connection, lid: int, week_num: int) -> dic
             hole_nets.append(net_val)
             if val > 0:
                 stable_gross += hole_stableford_pts(val, hm["par"])
-                stable_net += hole_stableford_pts(net_val, hm["par"])
+                stable_net += hole_stableford_pts(net_val, hm["par"], is_net=True)
 
         front = sum(hole_scores[:9])
         back = sum(hole_scores[9:18]) if num_holes > 9 else 0
         gross = front + back
         adj_gross = sum(hole_adj)
-        net = (gross - int(round(hcp))) if gross > 0 else 0
+        net = (gross - round_half_up(hcp)) if gross > 0 else 0
         par_played = sum(hm["par"] for hm, s in zip(holes_meta, hole_scores) if s > 0)
         over_par = (gross - par_played) if gross > 0 else 0
 
@@ -413,9 +480,9 @@ def get_week_scorecard(conn: sqlite3.Connection, lid: int, week_num: int) -> dic
             "OverPar": over_par,
             "StablefordGross": stable_gross,
             "StablefordNet": stable_net,
-            "NumPutts": int(r.get("NumPutts") or 0),
-            "GreensInRegulation": int(r.get("GreensInRegulation") or 0),
-            "NumFairwaysHit": int(r.get("NumFairwaysHit") or 0),
+            "NumPutts": safe_int(r.get("NumPutts")),
+            "GreensInRegulation": safe_int(r.get("GreensInRegulation")),
+            "NumFairwaysHit": safe_int(r.get("NumFairwaysHit")),
             "IndividualPts": float(r.get("IndividualPts") or 0),
             "FieldPts": float(r.get("FieldPts") or 0),
             "Skins": float(r.get("Skins") or 0),
@@ -548,13 +615,15 @@ def auto_score_week_matches(conn: sqlite3.Connection, lid: int, week_num: int) -
                     )
 
             # Update season *Teams.Points
+            # Every team with result rows is rewritten (including a 0 total) so that a
+            # corrected / cleared score can never leave a stale season total behind.
             for tr_row in rows_as_dicts(conn.execute(f'SELECT "TeamID", COALESCE(SUM("TeamPts"),0) AS s FROM "{tr_tbl}" GROUP BY "TeamID"')):
-                if tr_row["s"] > 0:
+                if tr_row["s"] is not None:
                     conn.execute(f'UPDATE "{t_tbl}" SET "Points"=? WHERE "TeamID"=?', (round(float(tr_row["s"]), 2), tr_row["TeamID"]))
 
         # Recompute season *Players.Points
         for pr_row in rows_as_dicts(conn.execute(f'SELECT "PlayerID", COALESCE(SUM("IndividualPts"),0) AS s FROM "{res_tbl}" GROUP BY "PlayerID"')):
-            if pr_row["s"] > 0:
+            if pr_row["s"] is not None:
                 conn.execute(f'UPDATE "{p_tbl}" SET "Points"=? WHERE "PlayerID"=?', (round(float(pr_row["s"]), 2), pr_row["PlayerID"]))
 
     return get_week_scorecard(conn, lid, week_num)
@@ -569,12 +638,26 @@ def save_player_week_score(conn: sqlite3.Connection, lid: int, week_num: int, pa
     holes_meta = (course.get("holes") or [])[:18]
 
     pid = int(payload["PlayerID"])
-    p_row = next((p for p in st["players"] if int(p["PlayerID"]) == pid), {})
+    p_row = next((p for p in st["players"] if safe_int(p.get("PlayerID")) == pid), None)
+    if p_row is None:
+        raise NotFoundError(f"Player {pid} not found in league {lid}")
     hcp = float(p_row.get("Handicap") or 0)
 
-    holes: list[int] = [int(x or 0) for x in (payload.get("holes") or [])]
+    raw_holes = list(payload.get("holes") or [])
+    if len(raw_holes) > 18:
+        raise InvalidInputError("At most 18 hole scores may be submitted")
+    holes: list[int] = []
+    for x in raw_holes:
+        v = safe_int(x)
+        if v < 0 or v > MAX_HOLE_SCORE:
+            raise InvalidInputError(f"Hole scores must be between 0 and {MAX_HOLE_SCORE}")
+        holes.append(v)
     while len(holes) < 18:
         holes.append(0)
+    # A 9-hole league only plays holes 1..9; never persist phantom back-nine strokes
+    # that would inflate BackNine / handicap history while being invisible in the UI.
+    if num_holes == 9:
+        holes[9:] = [0] * 9
     adj_holes = [
         apply_esc_cap(holes[i], holes_meta[i]["par"] if i < len(holes_meta) else 4, hcp, adjust_mode, num_holes)
         for i in range(18)
@@ -584,9 +667,9 @@ def save_player_week_score(conn: sqlite3.Connection, lid: int, week_num: int, pa
     back = sum(holes[9:18])
     adj_front = sum(adj_holes[:9])
     adj_back = sum(adj_holes[9:18])
-    putts = int(payload.get("NumPutts") or 0)
-    gir = int(payload.get("GreensInRegulation") or 0)
-    fwy = int(payload.get("NumFairwaysHit") or 0)
+    putts = safe_int(payload.get("NumPutts"))
+    gir = safe_int(payload.get("GreensInRegulation"))
+    fwy = safe_int(payload.get("NumFairwaysHit"))
     ind_pts = float(payload.get("IndividualPts") or 0)
 
     res_tbl = f"{lid}PlayerResults"
@@ -606,11 +689,11 @@ def save_player_week_score(conn: sqlite3.Connection, lid: int, week_num: int, pa
             )
         else:
             cols_str = '"WeekNum", "PlayerID", ' + ", ".join(hole_cols) + ', "FrontNine", "BackNine", "NumPutts", "GreensInRegulation", "NumFairwaysHit", "IndividualPts", "Sub", "Forfeit"'
-            q_marks = ", ".join("?" for _ in range(26))
-            conn.execute(
-                f'INSERT INTO "{res_tbl}" ({cols_str}) VALUES ({q_marks})',
-                (week_num, pid, *holes[:18], front, back, putts, gir, fwy, ind_pts, 0, 0),
-            )
+            values = (week_num, pid, *holes[:18], front, back, putts, gir, fwy, ind_pts, 0, 0)
+            # Placeholder count is derived from the values (was hard-coded to 26 for 28
+            # columns, so the first score of any new week/player always failed).
+            q_marks = ", ".join("?" for _ in values)
+            conn.execute(f'INSERT INTO "{res_tbl}" ({cols_str}) VALUES ({q_marks})', values)
 
         # Synchronize ESC-adjusted total into *AdjScores matrix (WeekNum, ID{pid}) (AGY-F3 / CDX-F3)
         if table_exists(conn, adj_tbl):
@@ -655,7 +738,7 @@ def recalculate_handicaps(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
     past_map = {}
     if table_exists(conn, past_tbl):
         for r in rows_as_dicts(conn.execute(f'SELECT * FROM "{past_tbl}"')):
-            scores = [int(r[str(i)]) for i in range(1, 21) if str(i) in r and r[str(i)] not in (None, "", 0) and int(r[str(i)]) > 20]
+            scores = [v for v in (safe_int(r.get(str(i))) for i in range(1, 21)) if v > 20]
             past_map[r["PlayerID"]] = scores
 
     # Prefer ESC-adjusted scores from *AdjScores (ID{pid}), fallback to *PlayerResults
@@ -663,12 +746,12 @@ def recalculate_handicaps(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
     if table_exists(conn, adj_tbl):
         for r in rows_as_dicts(conn.execute(f'SELECT * FROM "{adj_tbl}" ORDER BY "WeekNum" ASC')):
             for k, val in r.items():
-                if k.startswith("ID") and k[2:].isdigit() and val not in (None, "", 0) and int(val) > 20:
-                    res_scores.setdefault(int(k[2:]), []).append(int(val))
+                if k.startswith("ID") and k[2:].isdigit() and safe_int(val) > 20:
+                    res_scores.setdefault(int(k[2:]), []).append(safe_int(val))
     elif table_exists(conn, res_tbl):
         for r in rows_as_dicts(conn.execute(f'SELECT * FROM "{res_tbl}" ORDER BY "WeekNum" ASC')):
             pid = r["PlayerID"]
-            tot = int(r.get("FrontNine") or 0) + (int(r.get("BackNine") or 0) if num_holes > 9 else 0)
+            tot = safe_int(r.get("FrontNine")) + (safe_int(r.get("BackNine")) if num_holes > 9 else 0)
             if tot > 20:
                 res_scores.setdefault(pid, []).append(tot)
 
@@ -695,13 +778,25 @@ def recalculate_handicaps(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
     return {"league_id": lid, "updated_players": len(updated), "updates": updated}
 
 
-def generate_schedule(conn: sqlite3.Connection, lid: int, weeks: int = 16, start_date: str = "2026-05-05") -> list[dict[str, Any]]:
+def generate_schedule(conn: sqlite3.Connection, lid: int, weeks: int = 16, start_date: str | date = "2026-05-05") -> list[dict[str, Any]]:
+    weeks = int(weeks)
+    if weeks < 1 or weeks > MAX_SCHEDULE_WEEKS:
+        raise InvalidInputError(f"weeks must be between 1 and {MAX_SCHEDULE_WEEKS}")
+    if isinstance(start_date, date):
+        dt = datetime(start_date.year, start_date.month, start_date.day)
+    else:
+        try:
+            dt = datetime.strptime(str(start_date).strip(), "%Y-%m-%d")
+        except ValueError as exc:
+            raise InvalidInputError("start_date must be an ISO date (YYYY-MM-DD)") from exc
     st = get_league_standings(conn, lid)
     num_teams = max(4, len(st["teams"]))
     if num_teams % 2 == 1:
         num_teams += 1
     sched_tbl = f"{lid}Schedule"
-    course_id = int(st["league"].get("CourseID") or 1)
+    if not table_exists(conn, sched_tbl):
+        raise NotFoundError(f"League {lid} has no schedule table")
+    course_id = safe_int(st["league"].get("CourseID"), 1) or 1
 
     tpl_row = conn.execute(
         "SELECT raw_csv FROM round_robin_templates WHERE num_teams=?",
@@ -711,7 +806,8 @@ def generate_schedule(conn: sqlite3.Connection, lid: int, weeks: int = 16, start
     if tpl_row and tpl_row[0]:
         for ln in csv.reader(io.StringIO(tpl_row[0])):
             nums = [int(x.strip()) for x in ln if x.strip().isdigit()]
-            if len(nums) >= 4:
+            # Ignore malformed template rows (odd count, out-of-range or repeated teams).
+            if len(nums) >= 4 and len(nums) % 2 == 0 and len(set(nums)) == len(nums) and all(1 <= n <= num_teams for n in nums):
                 wk_pairs = [(nums[i], nums[i + 1]) for i in range(0, len(nums) - 1, 2)]
                 pairings_per_week.append(wk_pairs)
 
@@ -724,7 +820,6 @@ def generate_schedule(conn: sqlite3.Connection, lid: int, weeks: int = 16, start
             pairings_per_week.append(wk_pairs)
             teams_list = [teams_list[0]] + [teams_list[-1]] + teams_list[1:-1]
 
-    dt = datetime.strptime(start_date[:10], "%Y-%m-%d")
     with conn:
         conn.execute(f'DELETE FROM "{sched_tbl}"')
         for w in range(1, weeks + 1):

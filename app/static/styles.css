@@ -7,13 +7,16 @@
   --text: #ecfdf5;
   --text-muted: #99ceb8;
   --accent: #10b981;
-  --accent-hover: #059669;
+  --accent-hover: #34d399;
   --accent-soft: rgba(16, 185, 129, 0.14);
   --gold: #f59e0b;
   --gold-soft: rgba(245, 158, 11, 0.15);
   --danger: #ef4444;
   --birdie: #34d399;
   --bogey: #fbbf24;
+  --on-accent: #04130d;
+  --focus: #34d399;
+  --input-border: #4f8f74;
 }
 
 [data-theme="zinc-dark"] {
@@ -24,13 +27,16 @@
   --text: #fafafa;
   --text-muted: #a1a1aa;
   --accent: #3b82f6;
-  --accent-hover: #2563eb;
+  --accent-hover: #60a5fa;
   --accent-soft: rgba(59, 130, 246, 0.14);
   --gold: #eab308;
   --gold-soft: rgba(234, 179, 8, 0.15);
   --danger: #ef4444;
   --birdie: #22c55e;
   --bogey: #f59e0b;
+  --on-accent: #020617;
+  --focus: #60a5fa;
+  --input-border: #71717a;
 }
 
 [data-theme="slate-light"] {
@@ -43,11 +49,14 @@
   --accent: #047857;
   --accent-hover: #065f46;
   --accent-soft: rgba(4, 120, 87, 0.1);
-  --gold: #b45309;
+  --gold: #92400e;
   --gold-soft: rgba(180, 83, 9, 0.12);
   --danger: #dc2626;
-  --birdie: #15803d;
-  --bogey: #b45309;
+  --birdie: #166534;
+  --bogey: #92400e;
+  --on-accent: #ffffff;
+  --focus: #047857;
+  --input-border: #64748b;
 }
 
 [data-theme="cyber-indigo"] {
@@ -57,14 +66,17 @@
   --border: #2e335c;
   --text: #eef2ff;
   --text-muted: #a5b4fc;
-  --accent: #6366f1;
-  --accent-hover: #4f46e5;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
   --accent-soft: rgba(99, 102, 241, 0.16);
   --gold: #f59e0b;
   --gold-soft: rgba(245, 158, 11, 0.15);
   --danger: #f43f5e;
   --birdie: #34d399;
   --bogey: #fbbf24;
+  --on-accent: #ffffff;
+  --focus: #a5b4fc;
+  --input-border: #6b73c9;
 }
 
 [data-theme="sunset-amber"] {
@@ -75,17 +87,56 @@
   --text: #fffbeb;
   --text-muted: #d6bc99;
   --accent: #f59e0b;
-  --accent-hover: #d97706;
+  --accent-hover: #fbbf24;
   --accent-soft: rgba(245, 158, 11, 0.16);
   --gold: #10b981;
   --gold-soft: rgba(16, 185, 129, 0.15);
   --danger: #ef4444;
   --birdie: #34d399;
   --bogey: #fb923c;
+  --on-accent: #1a0f00;
+  --focus: #fbbf24;
+  --input-border: #8f6d50;
 }
 
 * {
   box-sizing: border-box;
+}
+
+html {
+  /* WCAG 2.2 SC 2.4.11 Focus Not Obscured: keep focused controls clear of the sticky top bar. */
+  scroll-padding-top: 140px;
+}
+
+.sr-only {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -100px;
+  z-index: 200;
+  background: var(--accent);
+  color: var(--on-accent);
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: 12px;
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
 }
 
 body {
@@ -122,7 +173,7 @@ body {
   height: 38px;
   border-radius: 10px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 800;
   font-size: 16px;
   display: grid;
@@ -147,6 +198,18 @@ body {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.topbar > *,
+.brand > * {
+  min-width: 0;
+}
+
+select {
+  max-width: 100%;
+  text-overflow: ellipsis;
 }
 
 select,
@@ -156,19 +219,27 @@ button,
   font-family: inherit;
   font-size: 13px;
   border-radius: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--input-border);
   background: var(--bg-elev);
   color: var(--text);
   padding: 7px 11px;
+  min-height: 24px;
   transition: all 0.15s ease;
 }
 
 select:focus-visible,
 input:focus-visible,
 button:focus-visible,
-.btn:focus-visible {
-  outline: 2px solid var(--accent);
+.btn:focus-visible,
+.tab-btn:focus-visible,
+.file-btn:focus-within {
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
+}
+
+[aria-invalid="true"] {
+  border-color: var(--danger);
+  border-width: 2px;
 }
 
 button,
@@ -185,7 +256,7 @@ button.primary,
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
 }
 
 button.primary:hover,
@@ -206,6 +277,12 @@ button.gold {
   padding: 10px 20px;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
+}
+
+.tabs-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .tab-btn {
@@ -269,8 +346,20 @@ button.gold {
 
 .grid-2 {
   display: grid;
-  grid-template-columns: 1.05fr 1.35fr;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.35fr);
   gap: 16px;
+}
+
+/* Let grid/flex children shrink so wide tables scroll inside .table-wrap (SC 1.4.10 Reflow). */
+.grid-2 > *,
+.panel,
+.kpi-card {
+  min-width: 0;
+}
+
+.table-wrap:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
 }
 
 @media (max-width: 1100px) {
@@ -305,6 +394,7 @@ button.gold {
 
 .table-wrap {
   overflow-x: auto;
+  max-width: 100%;
 }
 
 table {
@@ -330,7 +420,18 @@ th {
   font-weight: 700;
 }
 
-tr:hover td {
+/* Row headers (<th scope="row">) keep body-cell styling. */
+tbody th {
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+
+tr:hover td,
+tr:hover th[scope="row"] {
   background: rgba(255, 255, 255, 0.02);
 }
 
@@ -407,6 +508,7 @@ tr:hover td {
   border: 1px solid var(--accent);
   color: var(--text);
   padding: 10px 16px;
+  max-width: min(480px, calc(100vw - 40px));
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   z-index: 100;
@@ -415,6 +517,10 @@ tr:hover td {
 
 .toast.show {
   display: block;
+}
+
+.toast.error {
+  border: 2px solid var(--danger);
 }
 
 .hidden {
@@ -448,6 +554,17 @@ tr:hover td {
   padding: 4px 0;
 }
 
+.matchup-status {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+abbr[title] {
+  text-decoration: none;
+  cursor: help;
+}
+
 .caddy-box {
   background: var(--bg-elev);
   border: 1px solid var(--accent);
@@ -461,6 +578,16 @@ tr:hover td {
   min-width: 82px;
   justify-content: center;
   font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @media print {

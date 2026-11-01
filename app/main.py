@@ -2,17 +2,23 @@
 Reconstructed from /workspace/knowledge-base/gls9-golfsoft-bundle/dossier.md."""
 from __future__ import annotations
 
+import math
 import os
 import re
 import sqlite3
+import subprocess
 import tempfile
+import unicodedata
+from contextlib import contextmanager
+from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, HTTPException, Path as PathParam, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import golf_engine, mdb_migrator
 
@@ -22,31 +28,105 @@ DEFAULT_MDB = Path("/tmp/GLS9/Database/Gls90db.mdb")
 DEFAULT_SCHEDULES = Path("/tmp/GLS9/Schedules")
 
 
+MAX_MDB_UPLOAD_BYTES = int(os.environ.get("GLS9_MAX_MDB_BYTES", str(64 * 1024 * 1024)))
+# Jet 3/4 (.mdb) and ACE (.accdb) files carry this signature at byte offset 4.
+_MDB_MAGICS = (b"Standard Jet DB", b"Standard ACE DB")
+_EMAIL_RE = re.compile(r"^[^@\s<>\"']{1,64}@[A-Za-z0-9.-]{1,252}\.[A-Za-z]{2,63}$")
+_PHONE_RE = re.compile(r"^[0-9+()\-. xX#]{0,32}$")
+
+LeagueId = Annotated[int, PathParam(ge=1, le=99999, description="League ID")]
+WeekNum = Annotated[int, PathParam(ge=1, le=golf_engine.MAX_SCHEDULE_WEEKS, description="Week number (1-52)")]
+
+
+def _clean_text(value: str, *, field: str, max_len: int, required: bool) -> str:
+    """Normalise free text: NFC, strip, reject control characters and over-long values.
+
+    HTML metacharacters are *not* stripped (names like O'Brien or "Smith & Sons" are
+    legitimate); the SPA escapes every value on output instead."""
+    v = unicodedata.normalize("NFC", value or "").strip()
+    if any(unicodedata.category(ch).startswith("C") for ch in v):
+        raise ValueError(f"{field} must not contain control characters")
+    if required and not v:
+        raise ValueError(f"{field} is required")
+    if len(v) > max_len:
+        raise ValueError(f"{field} must be at most {max_len} characters")
+    return v
+
+
+def _finite(v: float, field: str) -> float:
+    if not math.isfinite(v):
+        raise ValueError(f"{field} must be a finite number")
+    return v
+
+
 class ScoreSaveReq(BaseModel):
-    PlayerID: int
-    holes: list[int]
-    NumPutts: int = 0
-    GreensInRegulation: int = 0
-    NumFairwaysHit: int = 0
-    IndividualPts: float = 0.0
+    model_config = ConfigDict(extra="ignore")
+
+    PlayerID: int = Field(ge=1, le=10_000_000)
+    holes: list[Annotated[int, Field(ge=0, le=golf_engine.MAX_HOLE_SCORE)]] = Field(max_length=18)
+    NumPutts: int = Field(default=0, ge=0, le=100)
+    GreensInRegulation: int = Field(default=0, ge=0, le=18)
+    NumFairwaysHit: int = Field(default=0, ge=0, le=18)
+    IndividualPts: float = Field(default=0.0, ge=-1000, le=1000)
+
+    @field_validator("IndividualPts")
+    @classmethod
+    def _pts_finite(cls, v: float) -> float:
+        return _finite(v, "IndividualPts")
 
 
 class PlayerUpsertReq(BaseModel):
-    PlayerID: int | None = None
-    TeamID: int = 1
+    model_config = ConfigDict(extra="ignore")
+
+    PlayerID: int | None = Field(default=None, ge=1, le=10_000_000)
+    TeamID: int = Field(default=1, ge=1, le=999)
     PlayerFirst: str
     PlayerLast: str
-    Handicap: float = 0.0
+    Handicap: float = Field(default=0.0, ge=-10, le=54)
     Division: str | float | None = None
-    Points: float = 0.0
-    Money: float = 0.0
+    Points: float = Field(default=0.0, ge=-100_000, le=100_000)
+    Money: float = Field(default=0.0, ge=-1_000_000, le=1_000_000)
     EMail: str = ""
     HomePhone: str = ""
 
+    @field_validator("PlayerFirst", "PlayerLast")
+    @classmethod
+    def _names(cls, v: str, info) -> str:
+        return _clean_text(v, field=info.field_name, max_len=40, required=True)
+
+    @field_validator("Handicap", "Points", "Money")
+    @classmethod
+    def _nums_finite(cls, v: float, info) -> float:
+        return _finite(v, info.field_name)
+
+    @field_validator("EMail")
+    @classmethod
+    def _email(cls, v: str) -> str:
+        v = _clean_text(v, field="EMail", max_len=254, required=False)
+        if v and not _EMAIL_RE.match(v):
+            raise ValueError("EMail is not a valid email address")
+        return v
+
+    @field_validator("HomePhone")
+    @classmethod
+    def _phone(cls, v: str) -> str:
+        v = _clean_text(v, field="HomePhone", max_len=32, required=False)
+        if not _PHONE_RE.match(v):
+            raise ValueError("HomePhone may only contain digits, spaces and + ( ) - . x #")
+        return v
+
 
 class ScheduleGenReq(BaseModel):
-    weeks: int = 16
-    start_date: str = "2026-05-05"
+    model_config = ConfigDict(extra="ignore")
+
+    weeks: int = Field(default=16, ge=1, le=golf_engine.MAX_SCHEDULE_WEEKS)
+    start_date: date = date(2026, 5, 5)
+
+
+_CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+    "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+)
 
 
 def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedules_dir: Path | None = None) -> FastAPI:
@@ -60,9 +140,65 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
     app = FastAPI(title="Golf League Secretary — Modern Web Edition (GLS9 Clean-Room)", version="2.0.0")
     app.state.db_file = db_file
 
-    def get_conn() -> sqlite3.Connection:
-        conn = sqlite3.connect(str(app.state.db_file))
-        return conn
+    @contextmanager
+    def get_conn():
+        """Per-request connection: commit on success, roll back on error, ALWAYS close.
+
+        (``with sqlite3.connect(...) as conn`` only manages the transaction - it never
+        closes the connection, which leaked one file handle per request.)"""
+        conn = sqlite3.connect(str(app.state.db_file), timeout=10)
+        try:
+            yield conn
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def require_league(conn: sqlite3.Connection, lid: int) -> None:
+        if not golf_engine.table_exists(conn, "Leagues") or conn.execute(
+            'SELECT 1 FROM "Leagues" WHERE "LeagueID"=?', (lid,)
+        ).fetchone() is None:
+            raise HTTPException(status_code=404, detail=f"League {lid} not found")
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        path = request.url.path
+        # Swagger UI (/docs) loads its own CDN assets, so the strict CSP applies to the SPA + API only.
+        if not (path.startswith("/docs") or path.startswith("/redoc") or path == "/openapi.json"):
+            response.headers.setdefault("Content-Security-Policy", _CSP)
+        if path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-store")
+        return response
+
+    @app.exception_handler(RequestValidationError)
+    async def _request_validation(_: Request, exc: RequestValidationError):
+        # FastAPI's default handler echoes the offending input back; a JSON NaN/Infinity
+        # input then crashes the error serialiser (500). Return only loc/msg/type.
+        errors = [
+            {"loc": list(e.get("loc", ())), "msg": str(e.get("msg", "")), "type": str(e.get("type", ""))}
+            for e in exc.errors()
+        ]
+        return JSONResponse(status_code=422, content={"detail": errors})
+
+    @app.exception_handler(golf_engine.NotFoundError)
+    async def _not_found(_: Request, exc: golf_engine.NotFoundError):
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(golf_engine.InvalidInputError)
+    async def _invalid_input(_: Request, exc: golf_engine.InvalidInputError):
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @app.exception_handler(sqlite3.Error)
+    async def _db_error(_: Request, exc: sqlite3.Error):
+        # Never leak SQL / schema details to the client.
+        return JSONResponse(status_code=500, content={"detail": "Database error"})
 
     @app.get("/api/health")
     def health():
@@ -87,8 +223,12 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
         with get_conn() as conn:
             leagues = golf_engine.rows_as_dicts(conn.execute('SELECT * FROM "Leagues" ORDER BY "LeagueID" ASC'))
             courses = {c["CourseID"]: c["CourseName"] for c in golf_engine.rows_as_dicts(conn.execute('SELECT "CourseID","CourseName" FROM "Courses"'))}
+            out_leagues = []
             for lg in leagues:
-                lid = lg["LeagueID"]
+                lid = golf_engine.safe_int(lg.get("LeagueID"), -1)
+                if lid < 1 or str(lg.get("LeagueID")).strip() not in (str(lid), f"{lid}.0"):
+                    continue  # skip corrupt rows; LeagueID is interpolated into table names
+                out_leagues.append(lg)
                 lg["CourseName"] = courses.get(lg.get("CourseID"), "Unknown Course")
                 p_tbl = f"{lid}Players"
                 t_tbl = f"{lid}Teams"
@@ -96,37 +236,40 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
                 lg["player_count"] = conn.execute(f'SELECT COUNT(*) FROM "{p_tbl}"').fetchone()[0] if golf_engine.table_exists(conn, p_tbl) else 0
                 lg["team_count"] = conn.execute(f'SELECT COUNT(*) FROM "{t_tbl}"').fetchone()[0] if golf_engine.table_exists(conn, t_tbl) else 0
                 lg["week_count"] = conn.execute(f'SELECT COUNT(*) FROM "{s_tbl}"').fetchone()[0] if golf_engine.table_exists(conn, s_tbl) else 0
-        return {"leagues": leagues}
+        return {"leagues": out_leagues}
 
     @app.get("/api/leagues/{lid}/standings")
-    def league_standings(lid: int):
+    def league_standings(lid: LeagueId):
         with get_conn() as conn:
-            try:
-                return golf_engine.get_league_standings(conn, lid)
-            except KeyError as e:
-                raise HTTPException(status_code=404, detail=str(e))
+            require_league(conn, lid)
+            return golf_engine.get_league_standings(conn, lid)
 
     @app.get("/api/leagues/{lid}/week/{week_num}")
-    def week_scorecard(lid: int, week_num: int):
+    def week_scorecard(lid: LeagueId, week_num: WeekNum):
         with get_conn() as conn:
-            try:
-                return golf_engine.get_week_scorecard(conn, lid, week_num)
-            except KeyError as e:
-                raise HTTPException(status_code=404, detail=str(e))
+            require_league(conn, lid)
+            return golf_engine.get_week_scorecard(conn, lid, week_num)
 
     @app.post("/api/leagues/{lid}/week/{week_num}/scores")
-    def save_week_score(lid: int, week_num: int, req: ScoreSaveReq):
+    def save_week_score(lid: LeagueId, week_num: WeekNum, req: ScoreSaveReq):
         with get_conn() as conn:
+            require_league(conn, lid)
+            if not golf_engine.table_exists(conn, f"{lid}PlayerResults"):
+                raise HTTPException(status_code=404, detail=f"League {lid} has no results table")
             return golf_engine.save_player_week_score(conn, lid, week_num, req.model_dump())
 
     @app.post("/api/leagues/{lid}/week/{week_num}/auto-score-matches")
-    def auto_score_week(lid: int, week_num: int):
+    def auto_score_week(lid: LeagueId, week_num: WeekNum):
         with get_conn() as conn:
+            require_league(conn, lid)
+            if not golf_engine.table_exists(conn, f"{lid}PlayerResults") or not golf_engine.table_exists(conn, f"{lid}Players"):
+                raise HTTPException(status_code=404, detail=f"League {lid} has no results table")
             return golf_engine.auto_score_week_matches(conn, lid, week_num)
 
     @app.get("/api/leagues/{lid}/week/{week_num}/report")
-    def week_clubhouse_report(lid: int, week_num: int):
+    def week_clubhouse_report(lid: LeagueId, week_num: WeekNum):
         with get_conn() as conn:
+            require_league(conn, lid)
             st = golf_engine.get_league_standings(conn, lid)
             sc = golf_engine.get_week_scorecard(conn, lid, week_num)
             return {
@@ -143,13 +286,17 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             }
 
     @app.post("/api/leagues/{lid}/recalculate-handicaps")
-    def recalc_hcps(lid: int):
+    def recalc_hcps(lid: LeagueId):
         with get_conn() as conn:
+            require_league(conn, lid)
+            if not golf_engine.table_exists(conn, f"{lid}Players"):
+                raise HTTPException(status_code=404, detail=f"League {lid} has no players table")
             return golf_engine.recalculate_handicaps(conn, lid)
 
     @app.get("/api/leagues/{lid}/schedule")
-    def get_schedule(lid: int):
+    def get_schedule(lid: LeagueId):
         with get_conn() as conn:
+            require_league(conn, lid)
             s_tbl = f"{lid}Schedule"
             t_tbl = f"{lid}Teams"
             tt_tbl = f"{lid}TeeTimes"
@@ -162,17 +309,29 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             return {"league_id": lid, "schedule": sched, "tee_times": tt, "teams": teams}
 
     @app.post("/api/leagues/{lid}/schedule/generate")
-    def gen_schedule(lid: int, req: ScheduleGenReq):
+    def gen_schedule(lid: LeagueId, req: ScheduleGenReq):
         with get_conn() as conn:
+            require_league(conn, lid)
             sched = golf_engine.generate_schedule(conn, lid, req.weeks, req.start_date)
             return {"league_id": lid, "generated_weeks": len(sched), "schedule": sched}
 
     @app.post("/api/leagues/{lid}/players")
-    def upsert_player(lid: int, req: PlayerUpsertReq):
+    def upsert_player(lid: LeagueId, req: PlayerUpsertReq):
         with get_conn() as conn:
+            require_league(conn, lid)
             p_tbl = f"{lid}Players"
+            t_tbl = f"{lid}Teams"
+            if not golf_engine.table_exists(conn, p_tbl):
+                raise HTTPException(status_code=404, detail=f"League {lid} has no players table")
+            # Team leagues must reference an existing team; individual leagues (no *Teams rows)
+            # use TeamID as a free grouping number.
+            if golf_engine.table_exists(conn, t_tbl) and conn.execute(f'SELECT COUNT(*) FROM "{t_tbl}"').fetchone()[0] > 0:
+                if conn.execute(f'SELECT 1 FROM "{t_tbl}" WHERE "TeamID"=?', (req.TeamID,)).fetchone() is None:
+                    raise HTTPException(status_code=422, detail=f"Team {req.TeamID} does not exist in league {lid}")
             with conn:
                 if req.PlayerID:
+                    if conn.execute(f'SELECT 1 FROM "{p_tbl}" WHERE "PlayerID"=?', (req.PlayerID,)).fetchone() is None:
+                        raise HTTPException(status_code=404, detail=f"Player {req.PlayerID} not found in league {lid}")
                     conn.execute(
                         f'UPDATE "{p_tbl}" SET "TeamID"=?, "PlayerFirst"=?, "PlayerLast"=?, "Handicap"=?, "Points"=?, "Money"=?, "EMail"=?, "HomePhone"=? WHERE "PlayerID"=?',
                         (req.TeamID, req.PlayerFirst, req.PlayerLast, req.Handicap, req.Points, req.Money, req.EMail, req.HomePhone, req.PlayerID),
@@ -204,7 +363,9 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
 
     @app.get("/api/tables/{table_name}")
     def inspect_table(table_name: str):
-        clean = re.sub(r"[^A-Za-z0-9_]", "", table_name)
+        if not re.fullmatch(r"[A-Za-z0-9_]{1,128}", table_name or ""):
+            raise HTTPException(status_code=404, detail="Table not found")
+        clean = table_name
         with get_conn() as conn:
             if not golf_engine.table_exists(conn, clean):
                 raise HTTPException(status_code=404, detail="Table not found")
@@ -215,9 +376,29 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
     def import_mdb(file: UploadFile = File(...)):
         fd, tmp = tempfile.mkstemp(suffix=".mdb")
         try:
+            size = 0
+            head = b""
             with os.fdopen(fd, "wb") as out:
-                out.write(file.file.read())
-            res = mdb_migrator.migrate_mdb_to_sqlite(Path(tmp), app.state.db_file, sched_dir)
+                while True:
+                    chunk = file.file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > MAX_MDB_UPLOAD_BYTES:
+                        raise HTTPException(status_code=413, detail=f"File exceeds {MAX_MDB_UPLOAD_BYTES // (1024 * 1024)} MB limit")
+                    if len(head) < 32:
+                        head += chunk[: 32 - len(head)]
+                    out.write(chunk)
+            if size == 0:
+                raise HTTPException(status_code=400, detail="Uploaded file is empty")
+            if not any(head[4:4 + len(m)] == m for m in _MDB_MAGICS):
+                raise HTTPException(status_code=400, detail="Uploaded file is not a Microsoft Access (.mdb/.accdb) database")
+            try:
+                res = mdb_migrator.migrate_mdb_to_sqlite(Path(tmp), app.state.db_file, sched_dir)
+            except FileNotFoundError:
+                raise HTTPException(status_code=503, detail="mdbtools (mdb-tables / mdb-export) is not installed on the server")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, UnicodeDecodeError):
+                raise HTTPException(status_code=400, detail="Could not read the uploaded .mdb file")
             return {"status": "ok", **res}
         finally:
             if os.path.exists(tmp):

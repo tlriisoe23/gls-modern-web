@@ -92,60 +92,62 @@ def _migrate_into(mdb_path: Path, sqlite_path: Path, schedules_dir: Path | None 
     tables = sorted(t.strip() for t in res_t.stdout.splitlines() if t.strip())
 
     conn = sqlite3.connect(str(sqlite_path))
-    migrated_tables = 0
-    total_rows = 0
+    try:
+        migrated_tables = 0
+        total_rows = 0
 
-    with conn:
-        for tbl in tables:
-            res_csv = subprocess.run([mdb_export_bin, str(mdb_path), tbl], capture_output=True, text=True, check=True, timeout=30)
-            reader = list(csv.reader(io.StringIO(res_csv.stdout)))
-            if not reader:
-                continue
-            headers = _unique_columns(reader[0])
-            if not headers or not _clean_ident(tbl):
-                continue
-            rows = reader[1:]
-            q_tbl = _safe_ident(tbl)
-            conn.execute(f"DROP TABLE IF EXISTS {q_tbl}")
-            col_defs = ", ".join(f'"{h}" NUMERIC' for h in headers)
-            conn.execute(f"CREATE TABLE {q_tbl} ({col_defs})")
-            if rows:
-                placeholders = ", ".join("?" for _ in headers)
-                width = len(headers)
-                # Short (ragged) CSV rows are padded with NULLs; extra cells are dropped.
-                parsed_rows = [
-                    ([_infer_val(cell) for cell in r[:width]] + [None] * max(0, width - len(r)))
-                    for r in rows
-                    if any(c.strip() for c in r)
-                ]
-                conn.executemany(f"INSERT INTO {q_tbl} VALUES ({placeholders})", parsed_rows)
-                total_rows += len(parsed_rows)
-            migrated_tables += 1
-
-        # Migrate Schedules/*.csv round-robin templates
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS round_robin_templates ("
-            "num_teams INTEGER PRIMARY KEY, filename TEXT, weeks_count INTEGER, raw_csv TEXT)"
-        )
-        templates_loaded = 0
-        if schedules_dir and schedules_dir.is_dir():
-            for csv_file in sorted(schedules_dir.glob("*team.csv")):
-                m = re.match(r"^(\d+)team\.csv$", csv_file.name, re.IGNORECASE)
-                if not m:
+        with conn:
+            for tbl in tables:
+                res_csv = subprocess.run([mdb_export_bin, str(mdb_path), tbl], capture_output=True, text=True, check=True, timeout=30)
+                reader = list(csv.reader(io.StringIO(res_csv.stdout)))
+                if not reader:
                     continue
-                n_teams = int(m.group(1))
-                raw_txt = csv_file.read_text(encoding="latin-1", errors="replace")
-                lines = [ln for ln in raw_txt.splitlines() if ln.strip()]
-                conn.execute(
-                    "INSERT OR REPLACE INTO round_robin_templates(num_teams, filename, weeks_count, raw_csv) VALUES (?,?,?,?)",
-                    (n_teams, csv_file.name, len(lines), raw_txt),
-                )
-                templates_loaded += 1
+                headers = _unique_columns(reader[0])
+                if not headers or not _clean_ident(tbl):
+                    continue
+                rows = reader[1:]
+                q_tbl = _safe_ident(tbl)
+                conn.execute(f"DROP TABLE IF EXISTS {q_tbl}")
+                col_defs = ", ".join(f'"{h}" NUMERIC' for h in headers)
+                conn.execute(f"CREATE TABLE {q_tbl} ({col_defs})")
+                if rows:
+                    placeholders = ", ".join("?" for _ in headers)
+                    width = len(headers)
+                    # Short (ragged) CSV rows are padded with NULLs; extra cells are dropped.
+                    parsed_rows = [
+                        ([_infer_val(cell) for cell in r[:width]] + [None] * max(0, width - len(r)))
+                        for r in rows
+                        if any(c.strip() for c in r)
+                    ]
+                    conn.executemany(f"INSERT INTO {q_tbl} VALUES ({placeholders})", parsed_rows)
+                    total_rows += len(parsed_rows)
+                migrated_tables += 1
 
-    conn.close()
-    return {
-        "migrated_tables": migrated_tables,
-        "total_rows": total_rows,
-        "templates_loaded": templates_loaded,
-        "tables": tables,
-    }
+            # Migrate Schedules/*.csv round-robin templates
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS round_robin_templates ("
+                "num_teams INTEGER PRIMARY KEY, filename TEXT, weeks_count INTEGER, raw_csv TEXT)"
+            )
+            templates_loaded = 0
+            if schedules_dir and schedules_dir.is_dir():
+                for csv_file in sorted(schedules_dir.glob("*team.csv")):
+                    m = re.match(r"^(\d+)team\.csv$", csv_file.name, re.IGNORECASE)
+                    if not m:
+                        continue
+                    n_teams = int(m.group(1))
+                    raw_txt = csv_file.read_text(encoding="latin-1", errors="replace")
+                    lines = [ln for ln in raw_txt.splitlines() if ln.strip()]
+                    conn.execute(
+                        "INSERT OR REPLACE INTO round_robin_templates(num_teams, filename, weeks_count, raw_csv) VALUES (?,?,?,?)",
+                        (n_teams, csv_file.name, len(lines), raw_txt),
+                    )
+                    templates_loaded += 1
+
+        return {
+            "migrated_tables": migrated_tables,
+            "total_rows": total_rows,
+            "templates_loaded": templates_loaded,
+            "tables": tables,
+        }
+    finally:
+        conn.close()

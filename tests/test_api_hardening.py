@@ -321,3 +321,43 @@ def test_corrupt_league_id_rows_are_skipped(client, db_path):
     r = client.get("/api/leagues")
     assert r.status_code == 200
     assert {x["LeagueID"] for x in r.json()["leagues"]} == {9, 10, 11}
+
+def test_mdb_migrator_closes_connection_on_subprocess_error(monkeypatch, db_path):
+    from app import mdb_migrator
+    from pathlib import Path
+    import subprocess
+    import tempfile
+
+    opened: list[sqlite3.Connection] = []
+    real_connect = sqlite3.connect
+
+    class TrackedConnection(sqlite3.Connection):
+        closed_flag = False
+        def close(self):
+            self.closed_flag = True
+            super().close()
+
+    def tracking_connect(*a, **kw):
+        c = real_connect(*a, factory=TrackedConnection, **kw)
+        opened.append(c)
+        return c
+
+    monkeypatch.setattr(mdb_migrator.sqlite3, "connect", tracking_connect)
+
+    def fake_run(args, **kwargs):
+        if "mdb-export" in args[0]:
+            raise subprocess.CalledProcessError(1, args)
+        class FakeCompletedProcess:
+            stdout = "Table1\nTable2\n"
+        return FakeCompletedProcess()
+
+    monkeypatch.setattr(mdb_migrator.subprocess, "run", fake_run)
+    monkeypatch.setattr(mdb_migrator.shutil, "which", lambda x: f"/fake/bin/{x}")
+
+    import pytest
+    with tempfile.NamedTemporaryFile(suffix=".db") as tf:
+        with pytest.raises(subprocess.CalledProcessError):
+            mdb_migrator._migrate_into(Path("/fake/path.mdb"), Path(tf.name), None)
+
+    assert opened, "expected _migrate_into to open a connection"
+    assert all(c.closed_flag for c in opened), "connection was leaked on subprocess error"

@@ -12,13 +12,13 @@ import unicodedata
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Awaitable, Callable, Generator
 
-from fastapi import FastAPI, File, HTTPException, Path as PathParam, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Path as PathParam, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, ValidationInfo
 
 from . import golf_engine, mdb_migrator
 
@@ -91,13 +91,13 @@ class PlayerUpsertReq(BaseModel):
 
     @field_validator("PlayerFirst", "PlayerLast")
     @classmethod
-    def _names(cls, v: str, info) -> str:
-        return _clean_text(v, field=info.field_name, max_len=40, required=True)
+    def _names(cls, v: str, info: ValidationInfo) -> str:
+        return _clean_text(v, field=info.field_name or "Unknown", max_len=40, required=True)
 
     @field_validator("Handicap", "Points", "Money")
     @classmethod
-    def _nums_finite(cls, v: float, info) -> float:
-        return _finite(v, info.field_name)
+    def _nums_finite(cls, v: float, info: ValidationInfo) -> float:
+        return _finite(v, info.field_name or "Unknown")
 
     @field_validator("EMail")
     @classmethod
@@ -141,7 +141,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
     app.state.db_file = db_file
 
     @contextmanager
-    def get_conn():
+    def get_conn() -> Generator[sqlite3.Connection, None, None]:
         """Per-request connection: commit on success, roll back on error, ALWAYS close.
 
         (``with sqlite3.connect(...) as conn`` only manages the transaction - it never
@@ -163,7 +163,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             raise HTTPException(status_code=404, detail=f"League {lid} not found")
 
     @app.middleware("http")
-    async def security_headers(request: Request, call_next):
+    async def security_headers(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
@@ -178,7 +178,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
         return response
 
     @app.exception_handler(RequestValidationError)
-    async def _request_validation(_: Request, exc: RequestValidationError):
+    async def _request_validation(_: Request, exc: RequestValidationError) -> JSONResponse:
         # FastAPI's default handler echoes the offending input back; a JSON NaN/Infinity
         # input then crashes the error serialiser (500). Return only loc/msg/type.
         errors = [
@@ -188,20 +188,20 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
         return JSONResponse(status_code=422, content={"detail": errors})
 
     @app.exception_handler(golf_engine.NotFoundError)
-    async def _not_found(_: Request, exc: golf_engine.NotFoundError):
+    async def _not_found(_: Request, exc: golf_engine.NotFoundError) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})
 
     @app.exception_handler(golf_engine.InvalidInputError)
-    async def _invalid_input(_: Request, exc: golf_engine.InvalidInputError):
+    async def _invalid_input(_: Request, exc: golf_engine.InvalidInputError) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": str(exc)})
 
     @app.exception_handler(sqlite3.Error)
-    async def _db_error(_: Request, exc: sqlite3.Error):
+    async def _db_error(_: Request, exc: sqlite3.Error) -> JSONResponse:
         # Never leak SQL / schema details to the client.
         return JSONResponse(status_code=500, content={"detail": "Database error"})
 
     @app.get("/api/health")
-    def health():
+    def health() -> dict[str, Any]:
         with get_conn() as conn:
             tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
             leagues_cnt = conn.execute('SELECT COUNT(*) FROM "Leagues"').fetchone()[0] if "Leagues" in tables else 0
@@ -219,7 +219,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
         }
 
     @app.get("/api/leagues")
-    def list_leagues():
+    def list_leagues() -> dict[str, Any]:
         with get_conn() as conn:
             leagues = golf_engine.rows_as_dicts(conn.execute('SELECT * FROM "Leagues" ORDER BY "LeagueID" ASC'))
             courses = {c["CourseID"]: c["CourseName"] for c in golf_engine.rows_as_dicts(conn.execute('SELECT "CourseID","CourseName" FROM "Courses"'))}
@@ -239,19 +239,19 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
         return {"leagues": out_leagues}
 
     @app.get("/api/leagues/{lid}/standings")
-    def league_standings(lid: LeagueId):
+    def league_standings(lid: LeagueId) -> dict[str, Any]:
         with get_conn() as conn:
             require_league(conn, lid)
             return golf_engine.get_league_standings(conn, lid)
 
     @app.get("/api/leagues/{lid}/week/{week_num}")
-    def week_scorecard(lid: LeagueId, week_num: WeekNum):
+    def week_scorecard(lid: LeagueId, week_num: WeekNum) -> dict[str, Any]:
         with get_conn() as conn:
             require_league(conn, lid)
             return golf_engine.get_week_scorecard(conn, lid, week_num)
 
     @app.post("/api/leagues/{lid}/week/{week_num}/scores")
-    def save_week_score(lid: LeagueId, week_num: WeekNum, req: ScoreSaveReq):
+    def save_week_score(lid: LeagueId, week_num: WeekNum, req: ScoreSaveReq) -> dict[str, Any]:
         with get_conn() as conn:
             require_league(conn, lid)
             if not golf_engine.table_exists(conn, f"{lid}PlayerResults"):
@@ -259,7 +259,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             return golf_engine.save_player_week_score(conn, lid, week_num, req.model_dump())
 
     @app.post("/api/leagues/{lid}/week/{week_num}/auto-score-matches")
-    def auto_score_week(lid: LeagueId, week_num: WeekNum):
+    def auto_score_week(lid: LeagueId, week_num: WeekNum) -> dict[str, Any]:
         with get_conn() as conn:
             require_league(conn, lid)
             if not golf_engine.table_exists(conn, f"{lid}PlayerResults") or not golf_engine.table_exists(conn, f"{lid}Players"):
@@ -267,7 +267,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             return golf_engine.auto_score_week_matches(conn, lid, week_num)
 
     @app.get("/api/leagues/{lid}/week/{week_num}/report")
-    def week_clubhouse_report(lid: LeagueId, week_num: WeekNum):
+    def week_clubhouse_report(lid: LeagueId, week_num: WeekNum) -> dict[str, Any]:
         with get_conn() as conn:
             require_league(conn, lid)
             st = golf_engine.get_league_standings(conn, lid)
@@ -286,7 +286,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             }
 
     @app.post("/api/leagues/{lid}/recalculate-handicaps")
-    def recalc_hcps(lid: LeagueId):
+    def recalc_hcps(lid: LeagueId) -> dict[str, Any]:
         with get_conn() as conn:
             require_league(conn, lid)
             if not golf_engine.table_exists(conn, f"{lid}Players"):
@@ -294,7 +294,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             return golf_engine.recalculate_handicaps(conn, lid)
 
     @app.get("/api/leagues/{lid}/schedule")
-    def get_schedule(lid: LeagueId):
+    def get_schedule(lid: LeagueId) -> dict[str, Any]:
         with get_conn() as conn:
             require_league(conn, lid)
             s_tbl = f"{lid}Schedule"
@@ -309,14 +309,14 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             return {"league_id": lid, "schedule": sched, "tee_times": tt, "teams": teams}
 
     @app.post("/api/leagues/{lid}/schedule/generate")
-    def gen_schedule(lid: LeagueId, req: ScheduleGenReq):
+    def gen_schedule(lid: LeagueId, req: ScheduleGenReq) -> dict[str, Any]:
         with get_conn() as conn:
             require_league(conn, lid)
             sched = golf_engine.generate_schedule(conn, lid, req.weeks, req.start_date)
             return {"league_id": lid, "generated_weeks": len(sched), "schedule": sched}
 
     @app.post("/api/leagues/{lid}/players")
-    def upsert_player(lid: LeagueId, req: PlayerUpsertReq):
+    def upsert_player(lid: LeagueId, req: PlayerUpsertReq) -> dict[str, Any]:
         with get_conn() as conn:
             require_league(conn, lid)
             p_tbl = f"{lid}Players"
@@ -347,12 +347,12 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             return golf_engine.get_league_standings(conn, lid)
 
     @app.get("/api/courses")
-    def list_courses():
+    def list_courses() -> dict[str, Any]:
         with get_conn() as conn:
             return {"courses": golf_engine.get_courses(conn)}
 
     @app.get("/api/tables")
-    def list_tables():
+    def list_tables() -> dict[str, Any]:
         with get_conn() as conn:
             names = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()]
             out = []
@@ -362,7 +362,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             return {"table_count": len(out), "tables": out}
 
     @app.get("/api/tables/{table_name}")
-    def inspect_table(table_name: str):
+    def inspect_table(table_name: str) -> dict[str, Any]:
         if not re.fullmatch(r"[A-Za-z0-9_]{1,128}", table_name or ""):
             raise HTTPException(status_code=404, detail="Table not found")
         clean = table_name
@@ -373,7 +373,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             return {"table": clean, "row_count": len(rows), "rows": rows}
 
     @app.post("/api/import/mdb")
-    def import_mdb(file: UploadFile = File(...)):
+    def import_mdb(file: UploadFile = File(...)) -> dict[str, Any]:
         fd, tmp = tempfile.mkstemp(suffix=".mdb")
         try:
             size = 0
@@ -405,7 +405,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
                 os.unlink(tmp)
 
     @app.get("/api/export/sqlite")
-    def export_sqlite():
+    def export_sqlite() -> FileResponse:
         return FileResponse(
             app.state.db_file,
             media_type="application/x-sqlite3",
@@ -417,7 +417,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
         @app.get("/", include_in_schema=False)
-        def index():
+        def index() -> FileResponse:
             return FileResponse(static_dir / "index.html")
 
     return app

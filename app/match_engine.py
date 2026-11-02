@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 
 from .golf_engine import rows_as_dicts, table_exists
 
@@ -226,7 +226,7 @@ def load_league_context(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
 
 def rules_summary(ctx: dict[str, Any]) -> dict[str, Any]:
     r = ctx["rules"]
-    g = lambda k: float(r.get(k) or 0)  # noqa: E731
+    g: Callable[[str], float] = lambda k: float(r.get(k) or 0)  # noqa: E731
     mode = ctx["scoring_mode_name"]
     lines = []
     if mode == "nines_plus_match":
@@ -460,7 +460,7 @@ def resolve_pairs(ctx: dict[str, Any], conn: sqlite3.Connection, lid: int, week_
 
 def score_match(ctx: dict[str, Any], a: dict[str, Any] | None, b: dict[str, Any] | None, pid_a: int, pid_b: int) -> dict[str, Any]:
     r = ctx["rules"]
-    g = lambda k: float(r.get(k) or 0)  # noqa: E731
+    g: Callable[[str], float] = lambda k: float(r.get(k) or 0)  # noqa: E731
     mode = ctx["scoring_mode_name"]
     p_map = {p["PlayerID"]: p for p in ctx["players"]}
 
@@ -569,7 +569,7 @@ def compute_week(conn: sqlite3.Connection, lid: int, week_num: int) -> dict[str,
     entries = load_week_entries(conn, ctx, lid, week_num)
     pairs, pair_source = resolve_pairs(ctx, conn, lid, week_num, entries)
     r = ctx["rules"]
-    g = lambda k: float(r.get(k) or 0)  # noqa: E731
+    g: Callable[[str], float] = lambda k: float(r.get(k) or 0)  # noqa: E731
 
     matches = []
     ind_pts: dict[int, float] = {}

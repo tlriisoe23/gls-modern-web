@@ -231,6 +231,16 @@ function bindStaticHandlers() {
   document.getElementById("printSheetBtn").addEventListener("click", () => window.print());
 
   const caddyBtn = document.getElementById("toggleCaddyBtn");
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      const box = document.getElementById("caddyModeBox");
+      if (box && !box.classList.contains("hidden")) {
+        box.classList.add("hidden");
+        caddyBtn.setAttribute("aria-expanded", "false");
+        caddyBtn.focus();
+      }
+    }
+  });
   caddyBtn.addEventListener("click", () => {
     const box = document.getElementById("caddyModeBox");
     const nowHidden = box.classList.toggle("hidden");

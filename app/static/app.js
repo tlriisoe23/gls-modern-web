@@ -99,10 +99,38 @@ async function api(path, opts = {}) {
 /** Wrap an async event handler so failures surface to the user instead of failing silently. */
 function guarded(fn) {
   return async (...args) => {
+    let btn = null;
+    let didDisable = false;
+
+    if (args.length > 0 && args[0] instanceof Event) {
+      const e = args[0];
+      const target = e.currentTarget;
+      if (target instanceof HTMLElement) {
+        if (e.type === "submit") {
+          btn = target.querySelector('button[type="submit"]');
+        } else {
+          btn = target.closest('button');
+        }
+      }
+    }
+
+    if (btn && !btn.disabled) {
+      btn.disabled = true;
+      btn.setAttribute("aria-busy", "true");
+      btn.classList.add("is-loading");
+      didDisable = true;
+    }
+
     try {
       await fn(...args);
     } catch (err) {
       showToast(`Error: ${err.message || err}`, { error: true });
+    } finally {
+      if (btn && didDisable) {
+        btn.disabled = false;
+        btn.removeAttribute("aria-busy");
+        btn.classList.remove("is-loading");
+      }
     }
   };
 }

@@ -620,3 +620,5 @@ abbr[title] {
     display: none !important;
   }
 }
+
+.is-loading { opacity: .6; cursor: progress; }

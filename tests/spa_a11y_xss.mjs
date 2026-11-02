@@ -140,6 +140,13 @@ try {
   const after = await caddy.getAttribute("aria-expanded");
   record("A11y 4.1.2: caddy toggle exposes aria-expanded state", before === "false" && after === "true", `${before}->${after}`);
 
+  // A11y 2.1.1: Escape closes caddy and focuses toggle button
+  await page.keyboard.press("Escape");
+  const caddyHidden = await page.evaluate(() => document.getElementById("caddyModeBox")?.classList.contains("hidden"));
+  const toggleFocused = await page.evaluate(() => document.activeElement?.id === "toggleCaddyBtn");
+  const escapedExpanded = await caddy.getAttribute("aria-expanded");
+  record("A11y 2.1.1: Escape closes caddy and focuses toggle button", caddyHidden && toggleFocused && escapedExpanded === "false", `${caddyHidden} ${toggleFocused} ${escapedExpanded}`);
+
   // Every visible form control & button has an accessible name.
   for (const tab of ["standings", "scorecard", "roster", "schedule", "courses", "explorer"]) {
     await page.click(`#tabbtn-${tab}`);

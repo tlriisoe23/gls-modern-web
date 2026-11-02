@@ -551,22 +551,30 @@ def auto_score_week_matches(conn: sqlite3.Connection, lid: int, week_num: int) -
     t_tbl = f"{lid}Teams"
 
     with conn:
-        for pid, pts in pts_by_pid.items():
-            conn.execute(
+        if pts_by_pid:
+            conn.executemany(
                 f'UPDATE "{res_tbl}" SET "IndividualPts"=? WHERE "WeekNum"=? AND "PlayerID"=?',
-                (pts, week_num, pid),
+                [(pts, week_num, pid) for pid, pts in pts_by_pid.items()]
             )
+
+        fpts_only = []
+        fpts_and_ind = []
         for pid, fpts in field_by_pid.items():
             if pid not in pts_by_pid:
-                conn.execute(
-                    f'UPDATE "{res_tbl}" SET "FieldPts"=?, "IndividualPts"=? WHERE "WeekNum"=? AND "PlayerID"=?',
-                    (fpts, fpts, week_num, pid),
-                )
+                fpts_and_ind.append((fpts, fpts, week_num, pid))
             else:
-                conn.execute(
-                    f'UPDATE "{res_tbl}" SET "FieldPts"=? WHERE "WeekNum"=? AND "PlayerID"=?',
-                    (fpts, week_num, pid),
-                )
+                fpts_only.append((fpts, week_num, pid))
+
+        if fpts_and_ind:
+            conn.executemany(
+                f'UPDATE "{res_tbl}" SET "FieldPts"=?, "IndividualPts"=? WHERE "WeekNum"=? AND "PlayerID"=?',
+                fpts_and_ind
+            )
+        if fpts_only:
+            conn.executemany(
+                f'UPDATE "{res_tbl}" SET "FieldPts"=? WHERE "WeekNum"=? AND "PlayerID"=?',
+                fpts_only
+            )
 
         # Roll up team results for the week
         if table_exists(conn, tr_tbl) and table_exists(conn, t_tbl):
@@ -617,14 +625,14 @@ def auto_score_week_matches(conn: sqlite3.Connection, lid: int, week_num: int) -
             # Update season *Teams.Points
             # Every team with result rows is rewritten (including a 0 total) so that a
             # corrected / cleared score can never leave a stale season total behind.
-            for tr_row in rows_as_dicts(conn.execute(f'SELECT "TeamID", COALESCE(SUM("TeamPts"),0) AS s FROM "{tr_tbl}" GROUP BY "TeamID"')):
-                if tr_row["s"] is not None:
-                    conn.execute(f'UPDATE "{t_tbl}" SET "Points"=? WHERE "TeamID"=?', (round(float(tr_row["s"]), 2), tr_row["TeamID"]))
+            team_pts_params = [(round(float(tr_row["s"]), 2), tr_row["TeamID"]) for tr_row in rows_as_dicts(conn.execute(f'SELECT "TeamID", COALESCE(SUM("TeamPts"),0) AS s FROM "{tr_tbl}" GROUP BY "TeamID"')) if tr_row["s"] is not None]
+            if team_pts_params:
+                conn.executemany(f'UPDATE "{t_tbl}" SET "Points"=? WHERE "TeamID"=?', team_pts_params)
 
         # Recompute season *Players.Points
-        for pr_row in rows_as_dicts(conn.execute(f'SELECT "PlayerID", COALESCE(SUM("IndividualPts"),0) AS s FROM "{res_tbl}" GROUP BY "PlayerID"')):
-            if pr_row["s"] is not None:
-                conn.execute(f'UPDATE "{p_tbl}" SET "Points"=? WHERE "PlayerID"=?', (round(float(pr_row["s"]), 2), pr_row["PlayerID"]))
+        player_pts_params = [(round(float(pr_row["s"]), 2), pr_row["PlayerID"]) for pr_row in rows_as_dicts(conn.execute(f'SELECT "PlayerID", COALESCE(SUM("IndividualPts"),0) AS s FROM "{res_tbl}" GROUP BY "PlayerID"')) if pr_row["s"] is not None]
+        if player_pts_params:
+            conn.executemany(f'UPDATE "{p_tbl}" SET "Points"=? WHERE "PlayerID"=?', player_pts_params)
 
     return get_week_scorecard(conn, lid, week_num)
 
@@ -757,23 +765,32 @@ def recalculate_handicaps(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
 
     updated = []
     with conn:
+        player_updates = []
         for p in st["players"]:
             pid = p["PlayerID"]
             rounds = (past_map.get(pid, []) + res_scores.get(pid, []))[-10:]
             if rounds:
                 avg_over = sum(r - par_target for r in rounds) / len(rounds)
                 new_hcp = max(0.0, min(max_hcp, round(avg_over * pct, 1)))
-                conn.execute(f'UPDATE "{p_tbl}" SET "Handicap"=? WHERE "PlayerID"=?', (new_hcp, pid))
+                player_updates.append((new_hcp, pid))
                 updated.append({"PlayerID": pid, "PlayerName": f"{p.get('PlayerFirst','')} {p.get('PlayerLast','')}".strip(), "rounds_used": len(rounds), "new_handicap": new_hcp})
+
+        if player_updates:
+            conn.executemany(f'UPDATE "{p_tbl}" SET "Handicap"=? WHERE "PlayerID"=?', player_updates)
 
         # Update team handicaps
         p_hcp = {r["PlayerID"]: float(r.get("Handicap") or 0) for r in rows_as_dicts(conn.execute(f'SELECT * FROM "{p_tbl}"'))}
+
+        team_updates = []
         for t in st["teams"]:
             tid = t["TeamID"]
             members = [t.get("PlayerA"), t.get("PlayerB"), t.get("PlayerC"), t.get("PlayerD")]
             t_hcps = [p_hcp[m] for m in members if m and m in p_hcp]
             if t_hcps:
-                conn.execute(f'UPDATE "{t_tbl}" SET "Handicap"=? WHERE "TeamID"=?', (round(sum(t_hcps), 1), tid))
+                team_updates.append((round(sum(t_hcps), 1), tid))
+
+        if team_updates:
+            conn.executemany(f'UPDATE "{t_tbl}" SET "Handicap"=? WHERE "TeamID"=?', team_updates)
 
     return {"league_id": lid, "updated_players": len(updated), "updates": updated}
 

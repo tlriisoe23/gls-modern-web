@@ -621,4 +621,9 @@ abbr[title] {
   }
 }
 
-.is-loading { opacity: .6; cursor: progress; }
+.btn.is-loading,
+button.is-loading,
+[aria-busy="true"] {
+  opacity: 0.6;
+  cursor: progress;
+}

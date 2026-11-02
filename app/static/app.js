@@ -100,34 +100,35 @@ async function api(path, opts = {}) {
 function guarded(fn) {
   return async (...args) => {
     let btn = null;
-    let didDisable = false;
 
     if (args.length > 0 && args[0] instanceof Event) {
       const e = args[0];
       const target = e.currentTarget;
       if (target instanceof HTMLElement) {
         if (e.type === "submit") {
-          btn = target.querySelector('button[type="submit"]');
+          btn = e.submitter || target.querySelector('button[type="submit"]');
         } else {
-          btn = target.closest('button');
+          btn = target.closest('button') || (target.tagName === "BUTTON" ? target : null);
         }
       }
     }
 
-    if (btn && !btn.disabled) {
-      btn.disabled = true;
+    if (btn) {
+      if (btn.getAttribute("aria-busy") === "true") return; // block re-entry
+      btn.setAttribute("aria-disabled", "true");
       btn.setAttribute("aria-busy", "true");
       btn.classList.add("is-loading");
-      didDisable = true;
     }
 
+    let errorThrown = false;
     try {
       await fn(...args);
     } catch (err) {
+      errorThrown = true;
       showToast(`Error: ${err.message || err}`, { error: true });
     } finally {
-      if (btn && didDisable) {
-        btn.disabled = false;
+      if (btn && btn.isConnected && btn.getAttribute("aria-busy") === "true") {
+        btn.removeAttribute("aria-disabled");
         btn.removeAttribute("aria-busy");
         btn.classList.remove("is-loading");
       }

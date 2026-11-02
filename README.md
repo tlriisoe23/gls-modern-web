@@ -55,3 +55,29 @@ Test layout:
 - `.mdb` uploads are size-capped (`GLS9_MAX_MDB_BYTES`, 64 MB default) and signature-checked. They are migrated into a scratch DB and swapped in atomically, so a failed import never half-overwrites live data.
 - The UI targets WCAG 2.2 AA: skip link, keyboard-operable ARIA tabs, labelled controls, AA contrast in all 5 themes, 320 px reflow, focus not obscured by the sticky header, and reduced-motion support.
 - **There is no authentication.** Run the app only on a trusted network: anyone who can reach it can edit data, import a database or download `/api/export/sqlite`, which includes player emails and phone numbers.
+
+---
+
+<!-- AUTO-REPO-INVENTORY:START -->
+## Automated Repository Inventory (Auto-Synced)
+
+- **Verification Suite (`pytest`):** `pytest -q` (`>= 5` test modules discovered)
+- **Discovered API Endpoints (17):**
+  - `GET /api/health` (`app/main.py`)
+  - `GET /api/leagues` (`app/main.py`)
+  - `GET /api/leagues/{lid}/standings` (`app/main.py`)
+  - `GET /api/leagues/{lid}/week/{week_num}` (`app/main.py`)
+  - `POST /api/leagues/{lid}/week/{week_num}/scores` (`app/main.py`)
+  - `POST /api/leagues/{lid}/week/{week_num}/auto-score-matches` (`app/main.py`)
+  - `GET /api/leagues/{lid}/week/{week_num}/report` (`app/main.py`)
+  - `POST /api/leagues/{lid}/recalculate-handicaps` (`app/main.py`)
+  - `GET /api/leagues/{lid}/schedule` (`app/main.py`)
+  - `POST /api/leagues/{lid}/schedule/generate` (`app/main.py`)
+  - `POST /api/leagues/{lid}/players` (`app/main.py`)
+  - `GET /api/courses` (`app/main.py`)
+  - `GET /api/tables` (`app/main.py`)
+  - `GET /api/tables/{table_name}` (`app/main.py`)
+  - `POST /api/import/mdb` (`app/main.py`)
+  - `GET /api/export/sqlite` (`app/main.py`)
+  - `GET /` (`app/main.py`)
+<!-- AUTO-REPO-INVENTORY:END -->

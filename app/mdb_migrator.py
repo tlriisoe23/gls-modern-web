@@ -68,13 +68,15 @@ def migrate_mdb_to_sqlite(mdb_path: Path, sqlite_path: Path, schedules_dir: Path
     try:
         res = _migrate_into(mdb_path, Path(scratch), schedules_dir)
         src = sqlite3.connect(scratch)
-        dst = sqlite3.connect(str(sqlite_path), timeout=30)
         try:
-            dst.execute("PRAGMA journal_mode=WAL")
-            src.backup(dst)
+            dst = sqlite3.connect(str(sqlite_path), timeout=30)
+            try:
+                dst.execute("PRAGMA journal_mode=WAL")
+                src.backup(dst)
+            finally:
+                dst.close()
         finally:
             src.close()
-            dst.close()
         return res
     finally:
         for suffix in ("", "-wal", "-shm", "-journal"):

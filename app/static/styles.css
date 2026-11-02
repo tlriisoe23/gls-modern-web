@@ -620,3 +620,10 @@ abbr[title] {
     display: none !important;
   }
 }
+
+.btn.is-loading,
+button.is-loading,
+button[aria-busy="true"] {
+  opacity: 0.6;
+  cursor: progress;
+}

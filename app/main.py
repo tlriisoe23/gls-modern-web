@@ -376,9 +376,9 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
     def import_mdb(file: UploadFile = File(...)) -> dict[str, Any]:
         fd, tmp = tempfile.mkstemp(suffix=".mdb")
         try:
-            size = 0
-            head = b""
             with os.fdopen(fd, "wb") as out:
+                size = 0
+                head = b""
                 while True:
                     chunk = file.file.read(1024 * 1024)
                     if not chunk:

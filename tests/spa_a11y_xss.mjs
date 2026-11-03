@@ -176,13 +176,14 @@ try {
 
   // Empty states have role="status"
   await page.click("#tabbtn-explorer");
-  await page.selectOption("#rawTableSelect", "Events");
+  await page.selectOption("#rawTableSelect", "EmptyTestTable");
   await page.waitForFunction(() => document.querySelector("#rawTableGrid tbody")?.innerText.includes("0 rows"));
   const emptyHasStatus = await page.evaluate(() => {
-    const el = document.querySelector("#rawTableGrid tbody .brand-sub");
-    return el && el.getAttribute("role") === "status";
+    const td = document.querySelector("#rawTableGrid tbody td.brand-sub");
+    const span = document.querySelector('#rawTableGrid tbody td [role="status"]');
+    return !!span && (!td || !td.hasAttribute("role"));
   });
-  record("A11y 4.1.2: empty states have role='status'", emptyHasStatus, "Empty table message lacks role=status");
+  record("A11y 4.1.3: empty states are status messages", emptyHasStatus, "Empty table message lacks role=status on span or has it on td");
 
   // Client-side validation of hole scores is announced, not silently sent.
   await page.click("#tabbtn-scorecard");

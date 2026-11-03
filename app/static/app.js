@@ -646,7 +646,7 @@ async function loadWeekScorecard() {
           </div>
         </div>`
         )}`
-      : html`<div class="brand-sub" role="status">Individual Flight mode (Field Points awarded across all golfers).</div>`
+      : html`<div class="brand-sub">Individual Flight mode (Field Points awarded across all golfers).</div>`
   );
 
   // Render Gross & Net Skins
@@ -818,7 +818,7 @@ async function inspectRawTable(tableName) {
   const tbody = document.querySelector("#rawTableGrid tbody");
   if (rows.length === 0) {
     setHtml(thead, html`<tr><th scope="col">Empty Table</th></tr>`);
-    setHtml(tbody, html`<tr><td class="brand-sub" role="status">Table "${tableName}" has 0 rows.</td></tr>`);
+    setHtml(tbody, html`<tr><td class="brand-sub"><span role="status">Table "${tableName}" has 0 rows.</span></td></tr>`);
     return;
   }
   const cols = Object.keys(rows[0]);

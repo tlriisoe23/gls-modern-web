@@ -77,10 +77,25 @@ def test_nan_individual_points_rejected(client, bad_val):
     assert r.status_code == 422
     assert "detail" in r.json()
 
+
 def test_finite_floats_accepted(client):
     r = client.post(
         "/api/leagues/10/players",
         content=b'{"PlayerFirst": "A", "PlayerLast": "B", "TeamID": 1, "Handicap": 5.5, "Division": 1.0, "Points": 10.0, "Money": 100.0}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 200
+
+    r = client.post(
+        "/api/leagues/10/players",
+        content=b'{"PlayerFirst": "A", "PlayerLast": "B", "TeamID": 1, "Handicap": 5.5, "Division": "A", "Points": 10.0, "Money": 100.0}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 200
+
+    r = client.post(
+        "/api/leagues/10/players",
+        content=b'{"PlayerFirst": "A", "PlayerLast": "B", "TeamID": 1, "Handicap": 5.5, "Division": null, "Points": 10.0, "Money": 100.0}',
         headers={"Content-Type": "application/json"},
     )
     assert r.status_code == 200

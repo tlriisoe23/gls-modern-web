@@ -83,7 +83,7 @@ class PlayerUpsertReq(BaseModel):
     PlayerFirst: str
     PlayerLast: str
     Handicap: float = Field(default=0.0, ge=-10, le=54, allow_inf_nan=False)
-    Division: str | float | None = Field(default=None, allow_inf_nan=False)
+    Division: str | Annotated[float, Field(allow_inf_nan=False)] | None = None
     Points: float = Field(default=0.0, ge=-100_000, le=100_000, allow_inf_nan=False)
     Money: float = Field(default=0.0, ge=-1_000_000, le=1_000_000, allow_inf_nan=False)
     EMail: str = ""

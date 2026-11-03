@@ -1668,8 +1668,43 @@ function renderScorecardTableBody(sc) {
     );
   }
 
+
+const TEAM_TINT_THEMES = [
+  { tint: "rgba(16, 185, 129, 0.11)", border: "#10b981", pillBg: "rgba(16, 185, 129, 0.22)", pillText: "#6ee7b7" },
+  { tint: "rgba(59, 130, 246, 0.11)", border: "#3b82f6", pillBg: "rgba(59, 130, 246, 0.22)", pillText: "#93c5fd" },
+  { tint: "rgba(245, 158, 11, 0.11)", border: "#f59e0b", pillBg: "rgba(245, 158, 11, 0.22)", pillText: "#fcd34d" },
+  { tint: "rgba(139, 92, 246, 0.11)", border: "#8b5cf6", pillBg: "rgba(139, 92, 246, 0.22)", pillText: "#c4b5fd" },
+  { tint: "rgba(236, 72, 153, 0.10)", border: "#ec4899", pillBg: "rgba(236, 72, 153, 0.22)", pillText: "#f9a8d4" },
+  { tint: "rgba(6, 182, 212, 0.11)", border: "#06b6d4", pillBg: "rgba(6, 182, 212, 0.22)", pillText: "#67e8f9" }
+];
+function getTeamTintTheme(teamId) {
+  const n = Number(teamId || 0);
+  if (!n || n <= 0) return null;
+  return TEAM_TINT_THEMES[(n - 1) % TEAM_TINT_THEMES.length];
+}
+function computeBlind40Client(handicap, holesMeta) {
+  const pars = (holesMeta && holesMeta.length === 9) ? holesMeta.map(h => Number(h.par || 4)) : [4, 4, 4, 3, 5, 5, 4, 3, 4];
+  const ranks = (holesMeta && holesMeta.length === 9) ? holesMeta.map(h => Number(h.handicap_rank || 9)) : [13, 1, 9, 7, 11, 5, 3, 15, 17];
+  const hcp = Math.round(Number(handicap || 0));
+  const coursePar = pars.reduce((a, b) => a + b, 0);
+  const bogeysOverPar = (40 + hcp) - coursePar;
+  const order = pars.map((_, i) => i).sort((a, b) => ranks[a] - ranks[b]);
+  const baseAdd = Math.trunc(bogeysOverPar / pars.length) || 0;
+  const rem = Math.abs(bogeysOverPar % pars.length);
+  const strokes = pars.map(() => baseAdd);
+  const extra = bogeysOverPar >= 0 ? order.slice(0, rem) : order.slice(-rem);
+  for (const idx of extra) strokes[idx] += Math.sign(bogeysOverPar);
+  return pars.map((p, i) => Math.max(1, p + strokes[i]));
+}
+
   const renderPlayerRow = (row) => {
     const name = row.PlayerName || `Player ${row.PlayerID}`;
+    const isSub = Number(row.Sub || 0) === 1 || Number(row.PlayerID || 0) >= 900 || !row.TeamID;
+    const theme = !isSub ? getTeamTintTheme(row.TeamID) : null;
+    const partners = (!isSub && row.TeamID && Array.isArray(sc.scorecards))
+      ? sc.scorecards.filter(c => Number(c.TeamID) === Number(row.TeamID) && Number(c.PlayerID) !== Number(row.PlayerID)).map(c => c.PlayerName).filter(Boolean)
+      : [];
+    const rowStyle = theme ? `--team-tint-bg:${theme.tint};--team-border-color:${theme.border};--team-pill-bg:${theme.pillBg};--team-pill-text:${theme.pillText};` : "";
     const holeInputs = row.holes.map((val, idx) => {
       const strokes = row.strokes_received[idx] || 0;
       const holeNo = holesMeta[idx]?.hole ?? idx + 1;
@@ -1689,9 +1724,15 @@ function renderScorecardTableBody(sc) {
       const ptVal = row.Gross > 0 ? Number(row.ecgc_pt ?? row.IndividualPts ?? 0) : 0;
       const nextHcp = row.Gross > 0 ? Number(row.next_handicap ?? (Number(row.Handicap || 0) - ptVal)) : Number(row.Handicap || 0);
       return html`
-        <tr data-row-pid="${row.PlayerID}" data-hcp="${row.Handicap || 0}">
-          <th scope="row"><strong>${name}</strong></th>
-          <td>T${row.TeamID || "-"}</td>
+        <tr data-row-pid="${row.PlayerID}" data-hcp="${row.Handicap || 0}" class="${theme ? "team-tinted-row" : ""} ${isSub ? "sub-player-row" : ""}" style="${rowStyle}">
+          <th scope="row">
+            <div class="player-name-line">
+              <strong>${name}</strong>
+              ${isSub ? html`<span class="badge sub-pill" title="Substitute Golfer">SUB</span>` : ""}
+            </div>
+            ${partners.length > 0 ? html`<div class="partner-sub-tag">Partner: ${partners.join(", ")}</div>` : ""}
+          </th>
+          <td><span class="team-pill-tag">T${row.TeamID || "SUB"}</span></td>
           <td class="num">${fmtHcp(row.Handicap)}</td>
           ${holeInputs}
           <td class="num"><span class="badge cell-gross">${row.Gross || "-"}</span></td>
@@ -1703,7 +1744,10 @@ function renderScorecardTableBody(sc) {
             <input type="hidden" class="pts-inp" value="${ptVal}" />
           </td>
           <td class="num cell-nexthcp">${row.Gross > 0 ? fmtHcp(nextHcp) : fmtHcp(row.Handicap)}</td>
-          <td><button type="button" class="primary save-score-btn" data-pid="${row.PlayerID}" aria-label="Save scores for ${name}">Save</button></td>
+          <td class="row-actions-cell">
+            <button type="button" class="secondary blind40-btn" data-pid="${row.PlayerID}" title="Blind 40: Auto-fill Net 40 / Gross ${40 + Math.round(Number(row.Handicap || 0))} on hardest holes">Blind 40</button>
+            <button type="button" class="primary save-score-btn" data-pid="${row.PlayerID}" aria-label="Save scores for ${name}">Save</button>
+          </td>
         </tr>
       `;
     }
@@ -1817,6 +1861,21 @@ function renderScorecardTableBody(sc) {
       });
     });
   }
+
+  tbody.querySelectorAll(".blind40-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const pid = Number(btn.dataset.pid);
+      const tr = tbody.querySelector(`tr[data-row-pid="${pid}"]`);
+      if (!tr) return;
+      const hcp = Number(tr.dataset.hcp || 0);
+      const holes = computeBlind40Client(hcp, holesMeta);
+      const inps = Array.from(tr.querySelectorAll(".score-input"));
+      inps.forEach((inp, i) => {
+        if (holes[i] !== undefined) inp.value = String(holes[i]);
+      });
+      if (inps[0]) inps[0].dispatchEvent(new Event("input"));
+    });
+  });
 
   tbody.querySelectorAll(".save-score-btn").forEach((btn) => {
     btn.addEventListener(

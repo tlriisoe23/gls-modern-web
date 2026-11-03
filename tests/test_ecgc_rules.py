@@ -425,3 +425,22 @@ def test_ecgc_team_edit_and_schedule_matchups_and_rollover(client):
     assert ro_data["new_league_id"] == 20271
     assert ro_data["teams_carried_over"] == 22
     assert ro_data["players_carried_over"] >= 44
+
+
+def test_ecgc_blind_40_engine_and_api(client):
+    from app import golf_engine
+
+    # 9 handicap -> Gross 49, Net 40 ([5, 6, 5, 5, 6, 7, 6, 4, 5])
+    holes_9 = golf_engine.compute_blind_40_scores(9)
+    assert holes_9 == [5, 6, 5, 5, 6, 7, 6, 4, 5]
+    assert sum(holes_9) == 49
+    assert sum(holes_9) - 9 == 40
+
+    # API endpoint verification
+    resp = client.get("/api/ecgc/blind-40?handicap=9")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["handicap"] == 9
+    assert body["gross"] == 49
+    assert body["net"] == 40
+    assert body["holes"] == [5, 6, 5, 5, 6, 7, 6, 4, 5]

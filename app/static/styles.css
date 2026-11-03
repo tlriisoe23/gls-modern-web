@@ -1187,3 +1187,58 @@ button.gold:hover {
   min-width: 210px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
 }
+
+
+/* Round 2: Translucent Teammate Coloring, SUB Badge & Blind 40 Button */
+tr.team-tinted-row > th,
+tr.team-tinted-row > td {
+  background-color: var(--team-tint-bg, transparent);
+}
+tr.team-tinted-row > th:first-child {
+  border-left: 4px solid var(--team-border-color, #10b981);
+}
+.player-name-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.partner-sub-tag {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+.team-pill-tag {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--team-pill-bg, rgba(148, 163, 184, 0.2));
+  color: var(--team-pill-text, #e2e8f0);
+}
+.badge.sub-pill {
+  background: rgba(245, 158, 11, 0.22);
+  color: #fcd34d;
+  border: 1px solid #f59e0b;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 5px;
+}
+.row-actions-cell {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.blind40-btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid #818cf8;
+  background: rgba(99, 102, 241, 0.18);
+  color: #c7d2fe;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.blind40-btn:hover {
+  background: rgba(99, 102, 241, 0.32);
+}

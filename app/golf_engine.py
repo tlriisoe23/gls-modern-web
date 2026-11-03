@@ -1107,3 +1107,29 @@ def generate_schedule(conn: sqlite3.Connection, lid: int, weeks: int = 16, start
                 )
 
     return rows_as_dicts(conn.execute(f'SELECT * FROM "{sched_tbl}" ORDER BY "WeekNum" ASC'))
+
+
+def compute_blind_40_scores(
+    handicap: float | int,
+    course_pars: list[int] | None = None,
+    course_hcp_ranks: list[int] | None = None,
+    target_net: int = 40,
+) -> list[int]:
+    """Compute ECGC Blind 40 hole-by-hole gross scores (Net 40, Gross = 40 + round(handicap)).
+    Bogeys over par are distributed starting from the hardest hole (rank 1..9) and restarting after 9.
+    """
+    pars = course_pars if course_pars and len(course_pars) == 9 else [4, 4, 4, 3, 5, 5, 4, 3, 4]
+    ranks = course_hcp_ranks if course_hcp_ranks and len(course_hcp_ranks) == 9 else [13, 1, 9, 7, 11, 5, 3, 15, 17]
+    hcp_int = int(round(float(handicap or 0)))
+    course_par = sum(pars)
+    gross_target = int(target_net) + hcp_int
+    bogeys_over_par = gross_target - course_par
+    order = sorted(range(len(pars)), key=lambda idx: ranks[idx])
+    base_add = int(bogeys_over_par / len(pars)) if bogeys_over_par >= 0 else -int(abs(bogeys_over_par) / len(pars))
+    rem = abs(bogeys_over_par) % len(pars)
+    strokes = [base_add for _ in pars]
+    extra_indices = order[:rem] if bogeys_over_par >= 0 else order[-rem:] if rem > 0 else []
+    step = 1 if bogeys_over_par >= 0 else -1
+    for i in extra_indices:
+        strokes[i] += step
+    return [max(1, pars[i] + strokes[i]) for i in range(len(pars))]

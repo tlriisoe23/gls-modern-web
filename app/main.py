@@ -1184,6 +1184,19 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
                 "weeks_generated": weeks,
             }
 
+
+    @app.get("/api/ecgc/blind-40")
+    def get_blind_40_preview(handicap: float = 9.0, target_net: int = 40) -> dict[str, Any]:
+        holes = golf_engine.compute_blind_40_scores(handicap, target_net=target_net)
+        hcp_int = int(round(float(handicap)))
+        return {
+            "handicap": hcp_int,
+            "target_net": target_net,
+            "gross": sum(holes),
+            "net": sum(holes) - hcp_int,
+            "holes": holes,
+        }
+
     @app.get("/api/export/sqlite")
     def export_sqlite() -> FileResponse:
         return FileResponse(

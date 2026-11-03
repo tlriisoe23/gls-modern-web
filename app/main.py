@@ -255,7 +255,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
     @app.get("/api/leagues")
     def list_leagues() -> dict[str, Any]:
         with get_conn() as conn:
-            leagues = golf_engine.rows_as_dicts(conn.execute('SELECT * FROM "Leagues" ORDER BY "LeagueID" ASC'))
+            leagues = golf_engine.rows_as_dicts(conn.execute('SELECT * FROM "Leagues" ORDER BY CASE WHEN "LeagueID"=20261 THEN 0 WHEN "LeagueID">=20180 THEN 1 ELSE 2 END, "LeagueID" DESC'))
             courses = {c["CourseID"]: c["CourseName"] for c in golf_engine.rows_as_dicts(conn.execute('SELECT "CourseID","CourseName" FROM "Courses"'))}
             out_leagues = []
             for lg in leagues:
@@ -263,14 +263,15 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
                 if lid < 1 or str(lg.get("LeagueID")).strip() not in (str(lid), f"{lid}.0"):
                     continue  # skip corrupt rows; LeagueID is interpolated into table names
                 out_leagues.append(lg)
-                lg["CourseName"] = courses.get(lg.get("CourseID"), "Unknown Course")
+                lg["CourseName"] = courses.get(lg.get("CourseID"), "Edwards County Golf Course")
+                lg["LeagueHoles"] = int(lg.get("LeagueHoles") or 9)
                 p_tbl = f"{lid}Players"
                 t_tbl = f"{lid}Teams"
                 s_tbl = f"{lid}Schedule"
                 lg["player_count"] = conn.execute(f'SELECT COUNT(*) FROM "{p_tbl}"').fetchone()[0] if golf_engine.table_exists(conn, p_tbl) else 0
                 lg["team_count"] = conn.execute(f'SELECT COUNT(*) FROM "{t_tbl}"').fetchone()[0] if golf_engine.table_exists(conn, t_tbl) else 0
                 lg["week_count"] = conn.execute(f'SELECT COUNT(*) FROM "{s_tbl}"').fetchone()[0] if golf_engine.table_exists(conn, s_tbl) else 0
-        return {"leagues": out_leagues}
+        return {"default_league_id": 20261, "default_course_id": 5, "default_holes": 9, "leagues": out_leagues}
 
     @app.get("/api/leagues/{lid}/standings")
     def league_standings(lid: LeagueId) -> dict[str, Any]:
@@ -383,7 +384,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
     @app.get("/api/courses")
     def list_courses() -> dict[str, Any]:
         with get_conn() as conn:
-            return {"courses": golf_engine.get_courses(conn)}
+            return {"default_course_id": 5, "default_course_name": "Edwards County Golf Course", "default_holes": 9, "courses": golf_engine.get_courses(conn)}
 
     @app.get("/api/tables")
     def list_tables() -> dict[str, Any]:

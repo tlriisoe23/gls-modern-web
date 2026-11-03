@@ -79,17 +79,27 @@ def table_exists(conn: sqlite3.Connection, name: str) -> bool:
 
 
 def get_courses(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    courses = rows_as_dicts(conn.execute('SELECT * FROM "Courses" ORDER BY "CourseID"'))
+    courses = rows_as_dicts(
+        conn.execute('SELECT * FROM "Courses" ORDER BY CASE WHEN "CourseID"=5 THEN 0 ELSE 1 END, "CourseID"')
+    )
     pars = {r["CourseID"]: r for r in rows_as_dicts(conn.execute('SELECT * FROM "CoursePar"'))}
     caps = {r["CourseID"]: r for r in rows_as_dicts(conn.execute('SELECT * FROM "CourseHandicap"'))}
     yards = {r["CourseID"]: r for r in rows_as_dicts(conn.execute('SELECT * FROM "CourseYards"'))}
+    tees_by_cid: dict[int, list[dict[str, Any]]] = {}
+    if table_exists(conn, "CourseTees"):
+        for tr in rows_as_dicts(conn.execute('SELECT * FROM "CourseTees" ORDER BY "TeeID" ASC')):
+            tees_by_cid.setdefault(safe_int(tr.get("CourseID")), []).append(tr)
     for c in courses:
         cid = c["CourseID"]
+        num_holes = 9 if safe_int(c.get("NumHoles"), 18) == 9 else 18
+        c["NumHoles"] = num_holes
+        c["is_default"] = (cid == 5)
+        c["tees"] = tees_by_cid.get(cid, [])
         p_row = pars.get(cid, {})
         h_row = caps.get(cid, {})
         y_row = yards.get(cid, {})
         holes = []
-        for h in range(1, 19):
+        for h in range(1, num_holes + 1):
             k_par = f"Hole{h:02d}Par"
             k_cap = f"Hole{h:02d}Cap"
             k_yd = f"Hole{h:02d}Yards"
@@ -101,7 +111,7 @@ def get_courses(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             })
         c["holes"] = holes
         c["front_par"] = sum(x["par"] for x in holes[:9])
-        c["back_par"] = sum(x["par"] for x in holes[9:18])
+        c["back_par"] = sum(x["par"] for x in holes[9:18]) if num_holes > 9 else 0
         c["total_par"] = c["front_par"] + c["back_par"]
     return courses
 
@@ -238,7 +248,7 @@ def get_league_standings(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
     prizes = rows_as_dicts(conn.execute(f'SELECT * FROM "{pr_tbl}" ORDER BY "WeekNum" ASC')) if table_exists(conn, pr_tbl) else []
 
     courses = {c["CourseID"]: c for c in get_courses(conn)}
-    course = courses.get(league.get("CourseID")) or (list(courses.values())[0] if courses else {})
+    course = courses.get(league.get("CourseID")) or courses.get(5) or (list(courses.values())[0] if courses else {})
     rules_summary = build_rules_summary(league, rules, fees)
 
     return {
@@ -421,7 +431,7 @@ def get_week_scorecard(conn: sqlite3.Connection, lid: int, week_num: int) -> dic
     league = st["league"]
     rules_summary = st["rules_summary"]
     course = st["course"]
-    num_holes = int(league.get("LeagueHoles") or 18)
+    num_holes = int(league.get("LeagueHoles") or 9)
     adjust_mode = int(league.get("AdjustScores") or 1)
     holes_meta = (course.get("holes") or [])[:num_holes]
     stroke_idx = stroke_index_map(holes_meta)
@@ -668,7 +678,7 @@ def save_player_week_score(conn: sqlite3.Connection, lid: int, week_num: int, pa
     st = get_league_standings(conn, lid)
     league = st["league"]
     course = st["course"]
-    num_holes = int(league.get("LeagueHoles") or 18)
+    num_holes = int(league.get("LeagueHoles") or 9)
     adjust_mode = int(league.get("AdjustScores") or 1)
     holes_meta = (course.get("holes") or [])[:18]
 
@@ -759,7 +769,7 @@ def recalculate_handicaps(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
     st = get_league_standings(conn, lid)
     league = st["league"]
     course = st["course"]
-    num_holes = int(league.get("LeagueHoles") or 18)
+    num_holes = int(league.get("LeagueHoles") or 9)
     pct = float(league.get("PercentHandicap") or 90) / 100.0
     max_hcp = float(league.get("MaximumHandicap") or (18 if num_holes == 9 else 36))
     par_target = int(course.get("front_par") or 36) if num_holes == 9 else int(course.get("total_par") or 72)

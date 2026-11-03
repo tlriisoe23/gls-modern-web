@@ -78,10 +78,8 @@ def ensure_ecgc_course(conn: sqlite3.Connection) -> dict[str, Any]:
     """)
 
     # 2. Courses row
-    existing = conn.execute(
-        'SELECT CourseID FROM "Courses" WHERE "CourseID"=?', (ECGC_COURSE_ID,)
-    ).fetchone()
-    if not existing:
+    conn.execute('DELETE FROM "Courses" WHERE "CourseID"=?', (ECGC_COURSE_ID,))
+    if True:
         conn.execute(
             """
             INSERT INTO "Courses" (
@@ -95,12 +93,12 @@ def ensure_ecgc_course(conn: sqlite3.Connection) -> dict[str, Any]:
                 ECGC_COURSE_ID,
                 ECGC_COURSE_NAME,
                 9,
-                "Front Nine",
+                "9-Hole Course",
                 34.4,
                 113,
-                "Back Nine",
-                34.4,
-                113,
+                "NA",
+                0,
+                0,
                 "3rd Nine",
                 0,
                 0,

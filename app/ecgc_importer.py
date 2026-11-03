@@ -1,7 +1,7 @@
 """ECGC Historical Data Importer for Golf League Secretary Modern Web.
 
 Imports Edwards County Golf Course (Kinsley, KS) and 18 historical
-season-divisions (2018-2026 Men's Twilight League and Women's League)
+season-divisions (2018-2026 Men's League and Women's League)
 from /workspace/ecgc-modern/data/ecgc.sqlite and brackets.json into gls9.db.
 Populates both normalized ECGC archive/analytics tables and native GLS9
 per-league tables (<lid>Teams, <lid>Players, <lid>Schedule, <lid>PlayerResults, etc.).
@@ -33,21 +33,21 @@ ECGC_RED_YARDS = [293, 298, 227, 183, 435, 405, 310, 146, 253]
 SEASON_DIVISIONS = [
     (2018, "mens", 20181, "2018 ECGC Men's League & Tournaments", "Wednesday", 9, 16),
     (2018, "womens", 20182, "2018 ECGC Women's League & Tournaments", "Tuesday", 9, 10),
-    (2019, "mens", 20191, "2019 ECGC Men's Twilight League", "Wednesday", 9, 16),
+    (2019, "mens", 20191, "2019 ECGC Men's League", "Wednesday", 9, 16),
     (2019, "womens", 20192, "2019 ECGC Women's League", "Tuesday", 9, 10),
-    (2020, "mens", 20201, "2020 ECGC Men's Twilight League", "Wednesday", 9, 16),
+    (2020, "mens", 20201, "2020 ECGC Men's League", "Wednesday", 9, 16),
     (2020, "womens", 20202, "2020 ECGC Women's League", "Tuesday", 9, 10),
-    (2021, "mens", 20211, "2021 ECGC Men's Twilight League", "Wednesday", 9, 16),
+    (2021, "mens", 20211, "2021 ECGC Men's League", "Wednesday", 9, 16),
     (2021, "womens", 20212, "2021 ECGC Women's League", "Tuesday", 9, 10),
-    (2022, "mens", 20221, "2022 ECGC Men's Twilight League", "Wednesday", 9, 16),
+    (2022, "mens", 20221, "2022 ECGC Men's League", "Wednesday", 9, 16),
     (2022, "womens", 20222, "2022 ECGC Women's League", "Tuesday", 9, 10),
-    (2023, "mens", 20231, "2023 ECGC Men's Twilight League", "Wednesday", 9, 16),
+    (2023, "mens", 20231, "2023 ECGC Men's League", "Wednesday", 9, 16),
     (2023, "womens", 20232, "2023 ECGC Women's League", "Tuesday", 9, 10),
-    (2024, "mens", 20241, "2024 ECGC Men's Twilight League", "Wednesday", 9, 16),
+    (2024, "mens", 20241, "2024 ECGC Men's League", "Wednesday", 9, 16),
     (2024, "womens", 20242, "2024 ECGC Women's League", "Tuesday", 9, 10),
-    (2025, "mens", 20251, "2025 ECGC Men's Twilight League", "Wednesday", 9, 16),
+    (2025, "mens", 20251, "2025 ECGC Men's League", "Wednesday", 9, 16),
     (2025, "womens", 20252, "2025 ECGC Women's League", "Tuesday", 9, 10),
-    (2026, "mens", 20261, "2026 ECGC Men's Twilight League", "Wednesday", 9, 16),
+    (2026, "mens", 20261, "2026 ECGC Men's League", "Wednesday", 9, 16),
     (2026, "womens", 20262, "2026 ECGC Women's League", "Tuesday", 9, 12),
 ]
 
@@ -743,7 +743,7 @@ def import_ecgc_data(
         "standings_count": len(standings_rows),
         "brackets_count": len(brackets_data),
         "course": course_info,
-        "default_active_league_id": 20261,  # 2026 ECGC Men's Twilight League
+        "default_active_league_id": 20261,  # 2026 ECGC Men's League
     }
 
 

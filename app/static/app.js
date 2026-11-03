@@ -337,7 +337,7 @@ function bindStaticHandlers() {
           renderLeagueSelectOptions();
           state.activeWeek = 1;
           await refreshLeagueData();
-          showToast("Switched to 2026 ECGC Men's Twilight League!");
+          showToast("Switched to 2026 ECGC Men's League!");
         }
       })
     );

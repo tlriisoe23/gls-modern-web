@@ -1060,7 +1060,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
         target_lid = target_year * 10 + (2 if division == "womens" else 1)
         weeks = max(1, min(52, int(req.get("weeks") or (12 if division == "womens" else 16))))
         start_date = str(req.get("start_date") or f"{target_year}-05-05")
-        div_title = "Women's League" if division == "womens" else "Men's Twilight League"
+        div_title = "Women's League" if division == "womens" else "Men's League"
         league_name = _clean_text(
             str(req.get("league_name") or f"{target_year} ECGC {div_title}"),
             field="league_name",
@@ -1082,7 +1082,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
                         "MaximumHandicap", "AdjustScores", "SubPercent", "Div1"
                     ) VALUES (?, ?, 5, ?, '06:00 PM', 10, 9, 2, 100.0, 36.0, 0, 100.0, ?)
                     """,
-                    (target_lid, league_name, day_str, "Women's Division" if division == "womens" else "Men's Twilight"),
+                    (target_lid, league_name, day_str, "Women's Division" if division == "womens" else "Men's Division"),
                 )
                 conn.execute('DELETE FROM "LeagueRules" WHERE "LeagueID"=?', (target_lid,))
                 conn.execute(

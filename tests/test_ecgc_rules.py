@@ -176,7 +176,7 @@ def test_ecgc_api_endpoints():
     assert r.status_code == 200
     seasons = r.json()
     assert seasons["count"] == 18
-    # Check that 2026 Men's Twilight League is present
+    # Check that 2026 Men's League is present
     slugs = {(s["season_year"], s["league_slug"]) for s in seasons["seasons"]}
     assert (2026, "mens") in slugs
     assert (2026, "womens") in slugs

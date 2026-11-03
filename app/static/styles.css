@@ -1,4 +1,3 @@
-:root,
 [data-theme="emerald-dark"] {
   --bg: #08120e;
   --bg-card: #0e1e17;
@@ -39,6 +38,7 @@
   --input-border: #71717a;
 }
 
+:root,
 [data-theme="slate-light"] {
   --bg: #f8fafc;
   --bg-card: #ffffff;

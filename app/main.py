@@ -67,7 +67,7 @@ class ScoreSaveReq(BaseModel):
     NumPutts: int = Field(default=0, ge=0, le=100)
     GreensInRegulation: int = Field(default=0, ge=0, le=18)
     NumFairwaysHit: int = Field(default=0, ge=0, le=18)
-    IndividualPts: float = Field(default=0.0, ge=-1000, le=1000)
+    IndividualPts: float = Field(default=0.0, ge=-1000, le=1000, allow_inf_nan=False)
 
     @field_validator("IndividualPts")
     @classmethod
@@ -82,10 +82,10 @@ class PlayerUpsertReq(BaseModel):
     TeamID: int = Field(default=1, ge=1, le=999)
     PlayerFirst: str
     PlayerLast: str
-    Handicap: float = Field(default=0.0, ge=-10, le=54)
-    Division: str | float | None = None
-    Points: float = Field(default=0.0, ge=-100_000, le=100_000)
-    Money: float = Field(default=0.0, ge=-1_000_000, le=1_000_000)
+    Handicap: float = Field(default=0.0, ge=-10, le=54, allow_inf_nan=False)
+    Division: str | Annotated[float, Field(allow_inf_nan=False)] | None = None
+    Points: float = Field(default=0.0, ge=-100_000, le=100_000, allow_inf_nan=False)
+    Money: float = Field(default=0.0, ge=-1_000_000, le=1_000_000, allow_inf_nan=False)
     EMail: str = ""
     HomePhone: str = ""
 

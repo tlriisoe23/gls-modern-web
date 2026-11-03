@@ -67,13 +67,57 @@ def test_invalid_score_payloads_rejected(client, payload):
     assert r.status_code == 422, r.text
 
 
-def test_nan_individual_points_rejected(client):
+@pytest.mark.parametrize("bad_val", ["NaN", "Infinity", "-Infinity"])
+def test_nan_individual_points_rejected(client, bad_val):
     r = client.post(
         "/api/leagues/10/week/1/scores",
-        content=b'{"PlayerID": 1, "holes": [4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4], "IndividualPts": NaN}',
+        content=f'{{"PlayerID": 1, "holes": [4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4], "IndividualPts": {bad_val}}}'.encode(),
         headers={"Content-Type": "application/json"},
     )
     assert r.status_code == 422
+    assert "detail" in r.json()
+
+
+def test_finite_floats_accepted(client):
+    r = client.post(
+        "/api/leagues/10/players",
+        content=b'{"PlayerFirst": "A", "PlayerLast": "B", "TeamID": 1, "Handicap": 5.5, "Division": 1.0, "Points": 10.0, "Money": 100.0}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 200
+
+    r = client.post(
+        "/api/leagues/10/players",
+        content=b'{"PlayerFirst": "A", "PlayerLast": "B", "TeamID": 1, "Handicap": 5.5, "Division": "A", "Points": 10.0, "Money": 100.0}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 200
+
+    r = client.post(
+        "/api/leagues/10/players",
+        content=b'{"PlayerFirst": "A", "PlayerLast": "B", "TeamID": 1, "Handicap": 5.5, "Division": null, "Points": 10.0, "Money": 100.0}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 200
+
+    r = client.post(
+        "/api/leagues/10/week/1/scores",
+        content=b'{"PlayerID": 1, "holes": [4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4], "IndividualPts": 5.5}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 200
+
+
+@pytest.mark.parametrize("field", ["Handicap", "Points", "Money", "Division"])
+@pytest.mark.parametrize("bad_val", ["NaN", "Infinity", "-Infinity"])
+def test_nan_player_fields_rejected(client, field, bad_val):
+    r = client.post(
+        "/api/leagues/10/players",
+        content=f'{{"PlayerFirst": "A", "PlayerLast": "B", "TeamID": 1, "{field}": {bad_val}}}'.encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 422
+    assert "detail" in r.json()
 
 
 def test_score_for_player_not_in_league_is_404_and_writes_nothing(client, db_path):

@@ -1050,13 +1050,13 @@ def populate_native_gls9_leagues(conn: sqlite3.Connection) -> None:
             if st_fin:
                 fin_pts = float(st_fin[0] or 0)
             st_h1 = conn.execute(
-                "SELECT points FROM ecgc_standings WHERE season_year=? AND league_slug=? AND team_id=? AND split_name='first'",
+                "SELECT points FROM ecgc_standings WHERE season_year=? AND league_slug=? AND team_id=? AND split_name IN ('first', 'first_half')",
                 (year, slug, tr[0]),
             ).fetchone()
             if st_h1:
                 h1_pts = float(st_h1[0] or 0)
             st_h2 = conn.execute(
-                "SELECT points FROM ecgc_standings WHERE season_year=? AND league_slug=? AND team_id=? AND split_name='second'",
+                "SELECT points FROM ecgc_standings WHERE season_year=? AND league_slug=? AND team_id=? AND split_name IN ('second', 'second_half')",
                 (year, slug, tr[0]),
             ).fetchone()
             if st_h2:
@@ -1140,6 +1140,19 @@ def populate_native_gls9_leagues(conn: sqlite3.Connection) -> None:
                 """,
                 (pid, assigned_team, pfirst, plast, hcp, float(total_pts), float(total_pts)),
             )
+
+        # Backfill combined Team Handicap (PlayerA + PlayerB) in <lid>Teams
+        conn.execute(
+            f"""
+            UPDATE "{t_tbl}"
+            SET "Handicap" = ROUND(
+                COALESCE((SELECT p."Handicap" FROM "{p_tbl}" p WHERE p."PlayerID" = "{t_tbl}"."PlayerA"), 0.0) +
+                COALESCE((SELECT p."Handicap" FROM "{p_tbl}" p WHERE p."PlayerID" = "{t_tbl}"."PlayerB"), 0.0),
+                1
+            ),
+            "PrevPts" = COALESCE("1stHalfPts", 0.0)
+            """
+        )
 
         # 6. Populate Schedule from ecgc_events & ecgc_matches
         ev_rows = conn.execute(

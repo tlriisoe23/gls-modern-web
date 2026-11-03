@@ -219,8 +219,10 @@ def test_ecgc_api_endpoints():
     assert "handicap_progression" in profile
 
     # 7. ECGC Match Breakdown endpoint
-    # Query a known match
-    r = client.get("/api/ecgc/matches/17060/breakdown")
+    m_list = client.get("/api/ecgc/matches?season_year=2026&league_slug=mens&week_number=1").json()["matches"]
+    assert len(m_list) > 0
+    known_mid = m_list[0]["id"]
+    r = client.get(f"/api/ecgc/matches/{known_mid}/breakdown")
     assert r.status_code == 200
     bd = r.json()
     assert "match" in bd
@@ -303,3 +305,123 @@ def test_ecgc_is_default_9hole_course(client):
     assert len(wk_res["holes_meta"]) == 9
     assert wk_res["course"]["CourseID"] == 5
     assert wk_res["course"]["NumHoles"] == 9
+
+
+def test_ecgc_standings_backfilled_handicaps_and_player_pt(client):
+    """CDX-02: Verify <lid>Teams combined handicaps & split points and <lid>Players round/PT stats."""
+    st = client.get("/api/leagues/20261/standings").json()
+    teams = st["teams"]
+    players = st["players"]
+    assert len(teams) == 22
+    assert len(players) >= 44
+
+    has_combined = [t for t in teams if float(t.get("CombinedHcp") or t.get("Handicap") or 0) > 0]
+    assert len(has_combined) >= 20
+    first_tm = teams[0]
+    assert "1stHalfPts" in first_tm
+    assert "2ndHalfPts" in first_tm
+    assert "PlayerA_Name" in first_tm
+    assert "PlayerB_Name" in first_tm
+    assert "games_behind" in first_tm
+
+    active_players = [p for p in players if int(p.get("rounds_played") or 0) > 0]
+    assert len(active_players) >= 40
+    sample_p = active_players[0]
+    assert sample_p["gross_avg"] is not None
+    assert sample_p["net_avg"] is not None
+    assert "season_pt" in sample_p
+
+
+def test_ecgc_live_score_save_triggers_2man_match_and_pt(client):
+    """CDX-01 & AGY-02: Verify live 9-hole score saving computes 2-man match play + per-player Net PT."""
+    wk1 = client.get("/api/leagues/20261/week/1").json()
+    cards = wk1["scorecards"]
+    assert len(cards) >= 44
+    sample_card = next(c for c in cards if int(c.get("Gross") or 0) > 0)
+    assert "ecgc_pt" in sample_card
+    assert "next_handicap" in sample_card
+
+    res = client.post("/api/leagues/20261/week/1/auto-score-matches")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["league_id"] == 20261
+    assert body["week_num"] == 1
+    assert len(body["team_results"]) >= 20
+    assert len(body["ecgc_matches"]) >= 10
+
+
+def test_ecgc_course_analytics_endpoint(client):
+    """AGY-05: Verify Hole 1-9 scoring averages, relative-to-par toughness rank, and Birdie/Par/Bogey stats."""
+    all_time = client.get("/api/ecgc/course-analytics").json()
+    assert all_time["course_id"] == 5
+    assert all_time["league_id"] is None
+    holes = all_time["holes"]
+    assert len(holes) == 9
+    ranks = sorted(h["toughness_rank"] for h in holes)
+    assert ranks == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    for h in holes:
+        assert h["samples"] > 1000
+        assert h["avg_gross"] > 2.5
+        assert "birdies" in h and "pars" in h and "bogeys" in h
+
+    season_only = client.get("/api/ecgc/course-analytics?league_id=20261").json()
+    assert season_only["league_id"] == 20261
+    assert len(season_only["holes"]) == 9
+
+
+def test_ecgc_team_edit_and_schedule_matchups_and_rollover(client):
+    """AGY-03, AGY-04, CDX-03: Verify 2-man team update, weekly matchup builder, and season rollover."""
+    # 1. Update Team 1 partner/name
+    r_tm = client.post(
+        "/api/leagues/20261/teams/1",
+        json={"TeamName": "Team 1 (Oferle / Strader)", "Division": 1},
+    )
+    assert r_tm.status_code == 200
+    tm_list = r_tm.json()["teams"]
+    t1 = next(t for t in tm_list if t["TeamID"] == 1)
+    assert t1["TeamName"] == "Team 1 (Oferle / Strader)"
+
+    # 2. Schedule endpoint returns all matches per week
+    sched = client.get("/api/leagues/20261/schedule").json()
+    assert len(sched["schedule"]) >= 16
+    wk1_matches = sched["schedule"][0]["matches"]
+    assert len(wk1_matches) == 11
+    assert wk1_matches[0]["match_num"] == 1
+
+    # 3. Save custom weekly 2-man pairings for Week 16
+    r_wk = client.post(
+        "/api/ecgc/leagues/20261/week/16/matchups",
+        json={
+            "date": "2026-08-18",
+            "half": 2,
+            "matches": [
+                {"match_num": 1, "team1_id": 1, "team2_id": 2},
+                {"match_num": 2, "team1_id": 3, "team2_id": 4},
+            ],
+        },
+    )
+    assert r_wk.status_code == 200
+    wk16_row = next(w for w in r_wk.json()["schedule"] if w["WeekNum"] == 16)
+    assert len(wk16_row["matches"]) >= 2
+    assert wk16_row["Match1Team1"] == 1 and wk16_row["Match1Team2"] == 2
+    assert wk16_row["Match2Team1"] == 3 and wk16_row["Match2Team2"] == 4
+    assert wk16_row["matches"][0]["team1_id"] == 1
+    assert wk16_row["matches"][0]["team2_id"] == 2
+
+    # 4. Rollover 20261 into 2027 Men's (20271)
+    r_ro = client.post(
+        "/api/ecgc/seasons/rollover",
+        json={
+            "source_league_id": 20261,
+            "target_year": 2027,
+            "division": "mens",
+            "weeks": 16,
+            "start_date": "2027-05-05",
+        },
+    )
+    assert r_ro.status_code == 200
+    ro_data = r_ro.json()
+    assert ro_data["status"] == "ok"
+    assert ro_data["new_league_id"] == 20271
+    assert ro_data["teams_carried_over"] == 22
+    assert ro_data["players_carried_over"] >= 44

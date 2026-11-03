@@ -338,9 +338,53 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             teams = {r["TeamID"]: r["TeamName"] for r in golf_engine.rows_as_dicts(conn.execute(f'SELECT "TeamID","TeamName" FROM "{t_tbl}"'))} if golf_engine.table_exists(conn, t_tbl) else {}
             sched = golf_engine.rows_as_dicts(conn.execute(f'SELECT * FROM "{s_tbl}" ORDER BY "WeekNum" ASC')) if golf_engine.table_exists(conn, s_tbl) else []
             tt = golf_engine.rows_as_dicts(conn.execute(f'SELECT * FROM "{tt_tbl}" ORDER BY "MatchNum" ASC')) if golf_engine.table_exists(conn, tt_tbl) else []
+
+            ecgc_by_wk: dict[int, list[dict[str, Any]]] = {}
+            if golf_engine.table_exists(conn, "ecgc_matches") and golf_engine.table_exists(conn, "ecgc_events"):
+                for em in golf_engine.rows_as_dicts(
+                    conn.execute(
+                        """
+                        SELECT m.id AS match_id, m.match_number, m.team_a_name, m.team_a_points,
+                               m.team_b_name, m.team_b_points, m.winner_label, m.result_summary, e.week_number
+                        FROM ecgc_matches m
+                        JOIN ecgc_events e ON e.id = m.event_id
+                        WHERE m.gls_league_id = ?
+                        ORDER BY e.week_number ASC, m.match_number ASC
+                        """,
+                        (lid,),
+                    )
+                ):
+                    ecgc_by_wk.setdefault(int(em.get("week_number") or 0), []).append(em)
+
             for w in sched:
+                wk_num = int(w.get("WeekNum") or 0)
                 w["Match1Label"] = f"Team {w.get('Match1Team1')} ({teams.get(w.get('Match1Team1'), '')}) vs Team {w.get('Match1Team2')} ({teams.get(w.get('Match1Team2'), '')})"
                 w["Match2Label"] = f"Team {w.get('Match2Team1')} ({teams.get(w.get('Match2Team1'), '')}) vs Team {w.get('Match2Team2')} ({teams.get(w.get('Match2Team2'), '')})"
+                wk_matches: list[dict[str, Any]] = []
+                em_list = ecgc_by_wk.get(wk_num, [])
+                em_by_num = {int(x.get("match_number") or 0): x for x in em_list}
+                for m_idx in range(1, 12):
+                    t1 = golf_engine.safe_int(w.get(f"Match{m_idx}Team1"))
+                    t2 = golf_engine.safe_int(w.get(f"Match{m_idx}Team2"))
+                    em = em_by_num.get(m_idx)
+                    if t1 <= 0 and t2 <= 0 and not em:
+                        continue
+                    t1_name = teams.get(t1) or (em.get("team_a_name") if em else f"Team {t1}")
+                    t2_name = teams.get(t2) or (em.get("team_b_name") if em else f"Team {t2}")
+                    wk_matches.append({
+                        "match_num": m_idx,
+                        "team1_id": t1,
+                        "team1_name": t1_name,
+                        "team2_id": t2,
+                        "team2_name": t2_name,
+                        "label": f"{t1_name} vs {t2_name}",
+                        "match_id": em.get("match_id") if em else None,
+                        "team1_pts": em.get("team_a_points") if em else None,
+                        "team2_pts": em.get("team_b_points") if em else None,
+                        "winner_label": em.get("winner_label") if em else None,
+                    })
+                w["matches"] = wk_matches
+                w["matches_count"] = len(wk_matches)
             return {"league_id": lid, "schedule": sched, "tee_times": tt, "teams": teams}
 
     @app.post("/api/leagues/{lid}/schedule/generate")
@@ -843,6 +887,302 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             pars=pars,
             rules=rules,
         )
+
+    @app.get("/api/ecgc/course-analytics")
+    def get_ecgc_course_analytics(league_id: int | None = None) -> dict[str, Any]:
+        with get_conn() as conn:
+            pars = [4, 4, 4, 3, 5, 5, 4, 3, 4]
+            caps = [13, 1, 9, 7, 11, 5, 3, 15, 17]
+            ranks9 = [7, 1, 5, 4, 6, 3, 2, 8, 9]
+            yards_blue = [307, 384, 313, 199, 481, 519, 392, 166, 272]
+            yards_white = [300, 374, 301, 192, 472, 513, 384, 156, 268]
+            yards_red = [293, 298, 227, 183, 435, 405, 310, 146, 253]
+
+            hole_rows: list[dict[str, Any]] = []
+            if golf_engine.table_exists(conn, "ecgc_hole_scores") and golf_engine.table_exists(conn, "ecgc_rounds"):
+                where_sql = "WHERE hs.gross_score > 0 AND r.gross_total >= 20"
+                params: list[Any] = []
+                if league_id and int(league_id) >= 20180:
+                    yr = int(league_id) // 10
+                    slug = "womens" if int(league_id) % 10 == 2 else "mens"
+                    where_sql += " AND r.season_year = ? AND r.league_slug = ?"
+                    params.extend([yr, slug])
+
+                q = f"""
+                    SELECT
+                        hs.hole_number,
+                        COUNT(*) AS samples,
+                        ROUND(AVG(hs.gross_score), 2) AS avg_gross,
+                        MIN(hs.gross_score) AS best_gross,
+                        MAX(hs.gross_score) AS max_gross,
+                        SUM(CASE WHEN hs.gross_score <= hs.par - 2 THEN 1 ELSE 0 END) AS eagles_plus,
+                        SUM(CASE WHEN hs.gross_score = hs.par - 1 THEN 1 ELSE 0 END) AS birdies,
+                        SUM(CASE WHEN hs.gross_score = hs.par THEN 1 ELSE 0 END) AS pars_cnt,
+                        SUM(CASE WHEN hs.gross_score = hs.par + 1 THEN 1 ELSE 0 END) AS bogeys,
+                        SUM(CASE WHEN hs.gross_score >= hs.par + 2 THEN 1 ELSE 0 END) AS double_plus
+                    FROM ecgc_hole_scores hs
+                    JOIN ecgc_rounds r ON r.id = hs.round_id
+                    {where_sql}
+                    GROUP BY hs.hole_number
+                    ORDER BY hs.hole_number ASC
+                """
+                stats_by_h = {int(r["hole_number"]): r for r in golf_engine.rows_as_dicts(conn.execute(q, params))}
+            else:
+                stats_by_h = {}
+
+            for i in range(9):
+                h_num = i + 1
+                st = stats_by_h.get(h_num, {})
+                avg_g = float(st.get("avg_gross") or pars[i])
+                over_par = round(avg_g - pars[i], 2)
+                hole_rows.append({
+                    "hole": h_num,
+                    "par": pars[i],
+                    "handicap_stroke_index": caps[i],
+                    "nine_hole_rank": ranks9[i],
+                    "yards_blue": yards_blue[i],
+                    "yards_white": yards_white[i],
+                    "yards_red": yards_red[i],
+                    "samples": int(st.get("samples") or 0),
+                    "avg_gross": avg_g,
+                    "over_par_avg": over_par,
+                    "eagles_plus": int(st.get("eagles_plus") or 0),
+                    "birdies": int(st.get("birdies") or 0),
+                    "pars": int(st.get("pars_cnt") or 0),
+                    "bogeys": int(st.get("bogeys") or 0),
+                    "double_plus": int(st.get("double_plus") or 0),
+                })
+
+            ranked = sorted(hole_rows, key=lambda x: (-x["over_par_avg"], x["nine_hole_rank"]))
+            for rk, item in enumerate(ranked, start=1):
+                item["toughness_rank"] = rk
+
+            return {
+                "course_id": 5,
+                "course_name": "Edwards County Golf Course",
+                "league_id": league_id,
+                "holes": hole_rows,
+            }
+
+    @app.post("/api/leagues/{lid}/teams/{team_id}")
+    def update_league_team(lid: LeagueId, team_id: int, req: dict[str, Any]) -> dict[str, Any]:
+        with get_conn() as conn:
+            require_league(conn, lid)
+            t_tbl = f"{lid}Teams"
+            p_tbl = f"{lid}Players"
+            if not golf_engine.table_exists(conn, t_tbl):
+                raise HTTPException(404, detail=f"League {lid} has no teams table")
+            pa = golf_engine.safe_int(req.get("PlayerA")) or None
+            pb = golf_engine.safe_int(req.get("PlayerB")) or None
+            tname = _clean_text(str(req.get("TeamName") or f"Team {team_id}"), field="TeamName", max_len=80, required=True)
+            with conn:
+                exists = conn.execute(f'SELECT 1 FROM "{t_tbl}" WHERE "TeamID"=?', (team_id,)).fetchone()
+                if exists:
+                    conn.execute(
+                        f'UPDATE "{t_tbl}" SET "TeamName"=?, "PlayerA"=?, "PlayerB"=? WHERE "TeamID"=?',
+                        (tname, pa, pb, team_id),
+                    )
+                else:
+                    conn.execute(
+                        f'INSERT INTO "{t_tbl}" ("TeamID","TeamName","PlayerA","PlayerB","Division","Points","PrevPts") VALUES (?,?,?,?,1,0,0)',
+                        (team_id, tname, pa, pb),
+                    )
+                if golf_engine.table_exists(conn, p_tbl):
+                    for pid in (pa, pb):
+                        if pid:
+                            conn.execute(f'UPDATE "{p_tbl}" SET "TeamID"=? WHERE "PlayerID"=?', (team_id, pid))
+                    conn.execute(
+                        f"""
+                        UPDATE "{t_tbl}"
+                        SET "Handicap" = ROUND(
+                            COALESCE((SELECT p."Handicap" FROM "{p_tbl}" p WHERE p."PlayerID" = "{t_tbl}"."PlayerA"), 0.0) +
+                            COALESCE((SELECT p."Handicap" FROM "{p_tbl}" p WHERE p."PlayerID" = "{t_tbl}"."PlayerB"), 0.0),
+                            1
+                        )
+                        WHERE "TeamID" = ?
+                        """,
+                        (team_id,),
+                    )
+            return golf_engine.get_league_standings(conn, lid)
+
+    @app.post("/api/ecgc/leagues/{lid}/week/{week_num}/matchups")
+    def save_week_matchups(lid: LeagueId, week_num: WeekNum, req: dict[str, Any]) -> dict[str, Any]:
+        with get_conn() as conn:
+            require_league(conn, lid)
+            s_tbl = f"{lid}Schedule"
+            if not golf_engine.table_exists(conn, s_tbl):
+                raise HTTPException(404, detail=f"League {lid} has no schedule table")
+            dt_str = _clean_text(str(req.get("date") or date.today().isoformat()), field="date", max_len=32, required=False) or date.today().isoformat()
+            half = 1 if int(req.get("half") or (1 if week_num <= 8 else 2)) == 1 else 2
+            weather = _clean_text(str(req.get("weather") or "Clear"), field="weather", max_len=32, required=False) or "Clear"
+            matches = req.get("matches") or []
+            if not isinstance(matches, list):
+                raise HTTPException(422, detail="matches must be a list")
+
+            cols_check = {d[1] for d in conn.execute(f'PRAGMA table_info("{s_tbl}")').fetchall()}
+            with conn:
+                for m_idx in range(3, 12):
+                    for side in (1, 2):
+                        cname = f"Match{m_idx}Team{side}"
+                        if cname not in cols_check:
+                            conn.execute(f'ALTER TABLE "{s_tbl}" ADD COLUMN "{cname}" INTEGER')
+
+                m_vals: list[int | None] = []
+                for m_idx in range(1, 12):
+                    item = next((x for x in matches if isinstance(x, dict) and int(x.get("match_num") or 0) == m_idx), None)
+                    if not item and m_idx - 1 < len(matches) and isinstance(matches[m_idx - 1], dict):
+                        item = matches[m_idx - 1]
+                    t1 = golf_engine.safe_int(item.get("team1_id")) if item else 0
+                    t2 = golf_engine.safe_int(item.get("team2_id")) if item else 0
+                    m_vals.extend([t1 if t1 > 0 else None, t2 if t2 > 0 else None])
+
+                ex = conn.execute(f'SELECT 1 FROM "{s_tbl}" WHERE "WeekNum"=?', (week_num,)).fetchone()
+                match_col_names = [f'"Match{i}Team{s}"' for i in range(1, 12) for s in (1, 2)]
+                if ex:
+                    set_sql = '"Date"=?, "Half"=?, "Weather"=?, ' + ", ".join(f"{c}=?" for c in match_col_names)
+                    conn.execute(f'UPDATE "{s_tbl}" SET {set_sql} WHERE "WeekNum"=?', [dt_str, half, weather, *m_vals, week_num])
+                else:
+                    cols_sql = '"WeekNum", "Date", "CourseID", "Half", "Weather", ' + ", ".join(match_col_names)
+                    qs = ", ".join("?" for _ in range(5 + len(m_vals)))
+                    conn.execute(f'INSERT INTO "{s_tbl}" ({cols_sql}) VALUES ({qs})', [week_num, dt_str, 5, half, weather, *m_vals])
+
+            return get_schedule(lid)
+
+    @app.post("/api/ecgc/seasons/rollover")
+    def rollover_ecgc_season(req: dict[str, Any]) -> dict[str, Any]:
+        source_lid = int(req.get("source_league_id") or 20261)
+        target_year = int(req.get("target_year") or 2027)
+        if target_year < 2018 or target_year > 2100:
+            raise HTTPException(422, detail="target_year must be between 2018 and 2100")
+        division = str(req.get("division") or ("womens" if source_lid % 10 == 2 else "mens")).lower()
+        if division not in ("mens", "womens"):
+            raise HTTPException(422, detail="division must be mens or womens")
+        target_lid = target_year * 10 + (2 if division == "womens" else 1)
+        weeks = max(1, min(52, int(req.get("weeks") or (12 if division == "womens" else 16))))
+        start_date = str(req.get("start_date") or f"{target_year}-05-05")
+        div_title = "Women's League" if division == "womens" else "Men's Twilight League"
+        league_name = _clean_text(
+            str(req.get("league_name") or f"{target_year} ECGC {div_title}"),
+            field="league_name",
+            max_len=80,
+            required=True,
+        )
+
+        with get_conn() as conn:
+            require_league(conn, source_lid)
+            src_st = golf_engine.get_league_standings(conn, source_lid)
+            day_str = "Tuesday" if division == "womens" else "Wednesday"
+            with conn:
+                conn.execute('DELETE FROM "Leagues" WHERE "LeagueID"=?', (target_lid,))
+                conn.execute(
+                    """
+                    INSERT INTO "Leagues" (
+                        "LeagueID", "LeagueName", "CourseID", "LeagueDay", "FirstTeeTime",
+                        "MinsBetweenGroups", "LeagueHoles", "NumManTeams", "PercentHandicap",
+                        "MaximumHandicap", "AdjustScores", "SubPercent", "Div1"
+                    ) VALUES (?, ?, 5, ?, '06:00 PM', 10, 9, 2, 100.0, 36.0, 0, 100.0, ?)
+                    """,
+                    (target_lid, league_name, day_str, "Women's Division" if division == "womens" else "Men's Twilight"),
+                )
+                conn.execute('DELETE FROM "LeagueRules" WHERE "LeagueID"=?', (target_lid,))
+                conn.execute(
+                    """
+                    INSERT INTO "LeagueRules" (
+                        "LeagueID", "IndPtsNet", "IndPtsAct", "IndPtsHolesMatch",
+                        "TeamPtsNetMatch", "TeamPtsHolesMatch", "UseIndPts"
+                    ) VALUES (?, 1.0, 0.0, 0.0, 2.0, 2.0, -1)
+                    """,
+                    (target_lid,),
+                )
+                if golf_engine.table_exists(conn, "league_rules_config"):
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO league_rules_config (
+                            league_id, rule_type, holes_count, points_per_hole_win, points_per_hole_tie,
+                            match_hole_points_total, net_bonus_enabled, net_bonus_below_max, net_bonus_pts,
+                            net_even_min, net_even_max, net_even_pts, net_penalty_above_min, net_penalty_pts,
+                            handicap_progression_mode, plus_handicaps_enabled, unplayed_round_score
+                        ) VALUES (?, 'ecgc_2person_match', 9, 1.0, 0.5, 9.0, 1, 35, 1.0, 36, 36, 0.0, 37, -1.0, 'weekly_pt', 1, -36)
+                        """,
+                        (target_lid,),
+                    )
+
+                t_tbl = f"{target_lid}Teams"
+                p_tbl = f"{target_lid}Players"
+                s_tbl = f"{target_lid}Schedule"
+                pr_tbl = f"{target_lid}PlayerResults"
+                tr_tbl = f"{target_lid}TeamResults"
+                tt_tbl = f"{target_lid}TeeTimes"
+                ms_tbl = f"{target_lid}MatchSetup"
+                holes_cols_sql = ", ".join(f'"{i}" INTEGER DEFAULT 0' for i in range(1, 19))
+                match_cols_sql = ", ".join(f'"Match{i}Team1" INTEGER, "Match{i}Team2" INTEGER' for i in range(1, 12))
+
+                conn.executescript(f"""
+                    CREATE TABLE IF NOT EXISTS "{t_tbl}" (
+                        "TeamID" INTEGER PRIMARY KEY, "TeamName" TEXT, "TeamSponsor" TEXT,
+                        "PlayerA" INTEGER, "PlayerB" INTEGER, "PlayerC" INTEGER, "PlayerD" INTEGER,
+                        "Handicap" REAL DEFAULT 0.0, "Division" INTEGER DEFAULT 1,
+                        "1stHalfPts" REAL DEFAULT 0.0, "2ndHalfPts" REAL DEFAULT 0.0,
+                        "FinalPts" REAL DEFAULT 0.0, "Points" REAL DEFAULT 0.0,
+                        "PrevPts" REAL DEFAULT 0.0, "Money" REAL DEFAULT 0.0, "InMoney" INTEGER DEFAULT 1
+                    );
+                    CREATE TABLE IF NOT EXISTS "{p_tbl}" (
+                        "PlayerID" INTEGER PRIMARY KEY, "TeamID" INTEGER,
+                        "PlayerFirst" TEXT, "PlayerLast" TEXT, "Street" TEXT, "City" TEXT,
+                        "State" TEXT, "Zip" TEXT, "HomePhone" TEXT, "WorkPhone" TEXT,
+                        "FaxPhone" TEXT, "EMail" TEXT, "Handicap" REAL DEFAULT 0.0,
+                        "Division" INTEGER DEFAULT 1, "1stHalfPts" REAL DEFAULT 0.0,
+                        "2ndHalfPts" REAL DEFAULT 0.0, "FinalPts" REAL DEFAULT 0.0,
+                        "Points" REAL DEFAULT 0.0, "PrevPts" REAL DEFAULT 0.0,
+                        "Money" REAL DEFAULT 0.0, "InMoney" INTEGER DEFAULT 1
+                    );
+                    CREATE TABLE IF NOT EXISTS "{s_tbl}" (
+                        "WeekNum" INTEGER PRIMARY KEY, "Date" TEXT, "DateType" INTEGER DEFAULT 1,
+                        "CourseID" INTEGER DEFAULT 5, "SchedUsed" INTEGER DEFAULT -1,
+                        "Half" INTEGER DEFAULT 1, "Weather" TEXT DEFAULT 'Clear',
+                        {match_cols_sql}
+                    );
+                    CREATE TABLE IF NOT EXISTS "{pr_tbl}" (
+                        "WeekNum" INTEGER, "PlayerID" INTEGER, {holes_cols_sql},
+                        "FrontNine" INTEGER DEFAULT 0, "BackNine" INTEGER DEFAULT 0,
+                        "NumPutts" INTEGER DEFAULT 0, "GreensInRegulation" INTEGER DEFAULT 0,
+                        "NumFairwaysHit" INTEGER DEFAULT 0, "IndividualPts" REAL DEFAULT 0.0,
+                        "FieldPts" REAL DEFAULT 0.0, "Skins" REAL DEFAULT 0.0,
+                        "SkinsNet" REAL DEFAULT 0.0, "Sub" INTEGER DEFAULT 0, "Forfeit" INTEGER DEFAULT 0,
+                        PRIMARY KEY ("WeekNum", "PlayerID")
+                    );
+                    CREATE TABLE IF NOT EXISTS "{tr_tbl}" (
+                        "WeekNum" INTEGER, "TeamID" INTEGER, "TeamPts" REAL DEFAULT 0.0,
+                        "MatchPts" REAL DEFAULT 0.0, "FieldPts" REAL DEFAULT 0.0,
+                        "TeamActual" INTEGER DEFAULT 0, "TeamNet" INTEGER DEFAULT 0,
+                        "SubPts" REAL DEFAULT 0.0, "UserDefinedPts" REAL DEFAULT 0.0,
+                        PRIMARY KEY ("WeekNum", "TeamID")
+                    );
+                    CREATE TABLE IF NOT EXISTS "{tt_tbl}" ("MatchNum" INTEGER PRIMARY KEY, "TeeTime" TEXT);
+                    CREATE TABLE IF NOT EXISTS "{ms_tbl}" ("MatchNum" INTEGER PRIMARY KEY, "Team1" INTEGER, "Team2" INTEGER);
+                """)
+                conn.execute(f'DELETE FROM "{t_tbl}"')
+                conn.execute(f'DELETE FROM "{p_tbl}"')
+                for pl in src_st["players"]:
+                    conn.execute(
+                        f'INSERT INTO "{p_tbl}" ("PlayerID","TeamID","PlayerFirst","PlayerLast","Handicap","Division","Points","PrevPts","EMail","HomePhone") VALUES (?,?,?,?,?,1,0,0,?,?)',
+                        (pl["PlayerID"], pl.get("TeamID") or 1, pl.get("PlayerFirst") or "", pl.get("PlayerLast") or "", float(pl.get("Handicap") or 0.0), pl.get("EMail") or "", pl.get("HomePhone") or ""),
+                    )
+                for tm in src_st["teams"]:
+                    conn.execute(
+                        f'INSERT INTO "{t_tbl}" ("TeamID","TeamName","PlayerA","PlayerB","Handicap","Division","1stHalfPts","2ndHalfPts","FinalPts","Points","PrevPts") VALUES (?,?,?,?,?,1,0,0,0,0,0)',
+                        (tm["TeamID"], tm.get("TeamName") or f"Team {tm['TeamID']}", tm.get("PlayerA"), tm.get("PlayerB"), float(tm.get("CombinedHcp") or tm.get("Handicap") or 0.0)),
+                    )
+                golf_engine.generate_schedule(conn, target_lid, weeks=weeks, start_date=start_date)
+
+            return {
+                "status": "ok",
+                "new_league_id": target_lid,
+                "league_name": league_name,
+                "teams_carried_over": len(src_st["teams"]),
+                "players_carried_over": len(src_st["players"]),
+                "weeks_generated": weeks,
+            }
 
     @app.get("/api/export/sqlite")
     def export_sqlite() -> FileResponse:

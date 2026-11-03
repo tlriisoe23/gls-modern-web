@@ -12,10 +12,10 @@
   <a class="skip-link" href="#main">Skip to main content</a>
   <header class="topbar">
     <div class="brand">
-      <div class="brand-badge" aria-hidden="true">GLS</div>
+      <div class="brand-badge" aria-hidden="true">ECGC</div>
       <div>
-        <h1>Golf League Secretary <span class="badge">Modern Web v2.0</span></h1>
-        <div class="brand-sub">Clean-Room Web Replacement for GolfSoft GLS9 (VB6 / Jet 3.5 .mdb → FastAPI + SQLite WAL)</div>
+        <h1>Edwards County Golf Course — Golf League Secretary <span class="badge">ECGC 9-Hole Edition</span></h1>
+        <div class="brand-sub">Men&#39;s Twilight &amp; Women&#39;s 2-Man Team Leagues · Kinsley, KS (2018–2026)</div>
       </div>
     </div>
 
@@ -23,22 +23,25 @@
       <label for="leagueSelect" class="brand-sub">Active League:</label>
       <select id="leagueSelect"></select>
 
-      <button id="recalcHcpBtn" type="button" class="gold" title="Recompute Player & Team Handicaps using League PercentHandicap & ESC-Adjusted Scores">
-        ⚡ Recalculate Handicaps
-      </button>
-
-      <button id="printSheetBtn" type="button" title="Print Weekly Clubhouse Standings, Matchups & Skins Sheet (frmPreview replacement)">
+      <button id="printSheetBtn" type="button" class="primary" title="Print 1-Page Weekly ECGC Clubhouse Standings, Matchups &amp; Skins Sheet">
         🖨️ Print Clubhouse Sheet
       </button>
 
-      <label class="btn file-btn" title="Select any GolfSoft Gls90db.mdb file to migrate all 60 tables">
-        <span aria-hidden="true">📂</span> Import .mdb
-        <input id="mdbUploadInput" type="file" accept=".mdb,.accdb" class="sr-only" />
-      </label>
-
-      <a class="btn primary" href="/api/export/sqlite" download="gls9_modern.db">
-        ⬇ Download SQLite (.db)
-      </a>
+      <details id="adminToolsDrawer" class="admin-drawer">
+        <summary class="btn">⚙️ Admin Tools</summary>
+        <div class="admin-drawer-menu">
+          <button id="recalcHcpBtn" type="button" class="gold" title="Recompute Player &amp; Team Handicaps">
+            ⚡ Recalculate Handicaps
+          </button>
+          <label class="btn file-btn" title="Select any GolfSoft Gls90db.mdb file to migrate all 60 tables">
+            <span aria-hidden="true">📂</span> Import .mdb
+            <input id="mdbUploadInput" type="file" accept=".mdb,.accdb" class="sr-only" />
+          </label>
+          <a class="btn" href="/api/export/sqlite" download="gls9_modern.db">
+            ⬇ Download SQLite (.db)
+          </a>
+        </div>
+      </details>
 
       <label for="themeSelect" class="sr-only">Color theme</label>
       <select id="themeSelect">
@@ -57,7 +60,7 @@
     <button class="tab-btn" id="tabbtn-scorecard" type="button" data-tab="scorecard" role="tab" aria-selected="false" aria-controls="tab-scorecard" tabindex="-1">📝 2. Scorecard &amp; Match Entry</button>
     <button class="tab-btn" id="tabbtn-roster" type="button" data-tab="roster" role="tab" aria-selected="false" aria-controls="tab-roster" tabindex="-1">👥 3. Players &amp; Teams</button>
     <button class="tab-btn" id="tabbtn-schedule" type="button" data-tab="schedule" role="tab" aria-selected="false" aria-controls="tab-schedule" tabindex="-1">📅 4. Schedule &amp; Pairings</button>
-    <button class="tab-btn" id="tabbtn-courses" type="button" data-tab="courses" role="tab" aria-selected="false" aria-controls="tab-courses" tabindex="-1">⛳ 5. Standings &amp; Analytics</button>
+    <button class="tab-btn" id="tabbtn-courses" type="button" data-tab="courses" role="tab" aria-selected="false" aria-controls="tab-courses" tabindex="-1">⛳ 5. ECGC Course &amp; Hole Analytics</button>
     <button class="tab-btn" id="tabbtn-explorer" type="button" data-tab="explorer" role="tab" aria-selected="false" aria-controls="tab-explorer" tabindex="-1">⚙️ 6. Courses, Rules &amp; Data Import</button>
     </div>
   </nav>
@@ -116,7 +119,7 @@
       <div id="standardStandingsGrid" class="grid-2">
         <div class="panel">
           <div class="panel-header">
-            <h2>Team Standings (`*Teams`)</h2>
+            <h2 id="teamsPanelTitle">ECGC 2-Man Team Standings</h2>
             <span id="teamMetaBadge" class="badge"></span>
           </div>
           <div class="table-wrap">
@@ -141,7 +144,7 @@
 
         <div class="panel">
           <div class="panel-header">
-            <h2>Individual Player Leaderboard (`*Players`)</h2>
+            <h2 id="playersPanelTitle">Individual Golfer &amp; Net PT Leaderboard</h2>
             <span id="playerMetaBadge" class="badge"></span>
           </div>
           <div class="table-wrap">
@@ -166,7 +169,7 @@
 
       <div class="panel">
         <div class="panel-header">
-          <h3>League Rules &amp; Handicap Configuration (`Leagues` + `LeagueRules`)</h3>
+          <h3>ECGC League Rules, Handicap &amp; Net PT Summary</h3>
         </div>
         <div id="leagueRulesSummary" class="kpi-strip"></div>
       </div>
@@ -177,9 +180,14 @@
       <div class="panel">
         <div class="panel-header">
           <div class="form-row">
-            <h2>Hole-by-Hole Scorecard, ESC &amp; Match Points (`*PlayerResults` + `*AdjScores`)</h2>
+            <h2>Weekly 9-Hole Scorecard &amp; Net PT Entry</h2>
             <label for="weekSelect">Week:</label>
             <select id="weekSelect"></select>
+            <label for="scorecardMatchFilter">View:</label>
+            <select id="scorecardMatchFilter" aria-label="Filter or group scorecard by matchup">
+              <option value="grouped">Grouped by 2-Man Matchup</option>
+              <option value="all">Full Roster (All Golfers)</option>
+            </select>
             <span id="weekCourseBadge" class="badge"></span>
           </div>
           <div class="form-row">
@@ -219,7 +227,7 @@
 
       <div class="panel">
         <div class="panel-header">
-          <h3>⚔️ Head-to-Head Match Play Pairings (`*MatchSetup` / `frmMatchSet` — 0.5x Tie-Splitting)</h3>
+          <h3>⚔️ Weekly 2-Man Team Matchups &amp; Net PT Results</h3>
           <span id="matchupsCountBadge" class="badge"></span>
         </div>
         <div id="matchupsBox" class="matchups-grid"></div>
@@ -245,7 +253,7 @@
     <section id="tab-roster" class="tab-pane hidden" role="tabpanel" aria-labelledby="tabbtn-roster" tabindex="0">
       <div class="panel">
         <div class="panel-header">
-          <h2>Add / Update League Player (`frmPlayer2`)</h2>
+          <h2>Add / Update League Golfer &amp; Team Assignment</h2>
         </div>
         <form id="playerForm" class="form-row" aria-label="Add or update league player">
           <input type="hidden" id="pfPlayerID" />
@@ -272,8 +280,20 @@
       <div class="grid-2">
         <div class="panel">
           <div class="panel-header">
-            <h3>Substitute Roster (`*Subs`)</h3>
+            <h3 id="subsPanelTitle">2-Man Team Roster &amp; Partner Manager</h3>
+            <span id="subsPanelBadge" class="badge gold"></span>
           </div>
+          <form id="teamEditForm" class="form-row" aria-label="Update 2-Man Team Partners" style="margin-bottom:10px;">
+            <label for="teTeamId" class="sr-only">Team number</label>
+            <select id="teTeamId" aria-label="Select Team to Edit"></select>
+            <label for="teTeamName" class="sr-only">Team display name</label>
+            <input type="text" id="teTeamName" placeholder="Team Name (e.g. Partner 1, Partner 2)" maxlength="80" style="flex:1;min-width:160px;" />
+            <label for="tePlayerA" class="sr-only">Partner 1</label>
+            <select id="tePlayerA" aria-label="Partner 1 Golfer"></select>
+            <label for="tePlayerB" class="sr-only">Partner 2</label>
+            <select id="tePlayerB" aria-label="Partner 2 Golfer"></select>
+            <button type="submit" class="btn small primary">💾 Update Team</button>
+          </form>
           <div class="table-wrap">
             <table id="subsTable">
             <caption class="sr-only">Substitute roster</caption>
@@ -294,7 +314,12 @@
 
         <div class="panel">
           <div class="panel-header">
-            <h3>League Fees &amp; Dues Ledger (`*LeagueFees` / `frmFees`)</h3>
+            <h3 id="feesPanelTitle">ECGC Career Golfer Directory (2018–2026)</h3>
+            <div class="form-row">
+              <label for="careerSearchInput" class="sr-only">Search career golfers</label>
+              <input type="search" id="careerSearchInput" placeholder="Search 128 ECGC golfers..." aria-label="Search ECGC career golfers" style="width:190px;" />
+              <span id="feesPanelBadge" class="badge"></span>
+            </div>
           </div>
           <div class="table-wrap">
             <table id="feesTable">
@@ -321,15 +346,58 @@
     <section id="tab-schedule" class="tab-pane hidden" role="tabpanel" aria-labelledby="tabbtn-schedule" tabindex="0">
       <div class="panel">
         <div class="panel-header">
-          <h2>Season Schedule &amp; Round-Robin Generator (`*Schedule` + `Schedules/*.csv`)</h2>
+          <h2>Weekly 2-Man Matchup Schedule &amp; Pairing Builder</h2>
           <div class="form-row">
             <label for="schedWeeksInput">Weeks:</label>
-            <input id="schedWeeksInput" type="number" value="17" min="1" max="52" style="width:75px" />
+            <input id="schedWeeksInput" type="number" value="16" min="1" max="52" style="width:75px" />
             <label for="schedStartInput">Start Date:</label>
             <input id="schedStartInput" type="date" value="2026-05-05" />
-            <button id="genSchedBtn" type="button" class="primary">🔄 Generate Round-Robin Schedule</button>
+            <button id="genSchedBtn" type="button" class="primary">🔄 Auto-Generate Round-Robin</button>
+            <button id="togglePairingsBuilderBtn" type="button" class="gold">✏️ Edit Week Pairings</button>
+            <button id="toggleRolloverWizardBtn" type="button" class="btn small">🚀 New Season Rollover</button>
           </div>
         </div>
+        <div id="weekPairingsEditorBox" class="caddy-box hidden" role="region" aria-label="Weekly 2-Man Matchup Pairing Editor" style="margin-bottom:12px;">
+          <div class="form-row" style="justify-content:space-between;margin-bottom:8px;">
+            <div class="form-row">
+              <strong>✏️ Edit Weekly 2-Man Matchups:</strong>
+              <label for="peWeekNum">Week:</label>
+              <input type="number" id="peWeekNum" min="1" max="52" value="1" style="width:70px;" />
+              <label for="peDate">Date:</label>
+              <input type="date" id="peDate" value="2026-05-06" />
+              <label for="peHalf">Half:</label>
+              <select id="peHalf" aria-label="Season half">
+                <option value="1">1st Half (Wks 1–8)</option>
+                <option value="2">2nd Half (Wks 9+)</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <button type="button" id="saveWeekPairingsBtn" class="primary">💾 Save Week Pairings</button>
+            </div>
+          </div>
+          <div id="peMatchesGrid" class="rules-grid"></div>
+        </div>
+
+        <div id="rolloverWizardBox" class="caddy-box hidden" role="region" aria-label="New Season Rollover Wizard" style="margin-bottom:12px;">
+          <div class="form-row" style="justify-content:space-between;">
+            <div class="form-row">
+              <strong>🚀 Roll Over Teams &amp; Handicaps to New ECGC Season:</strong>
+              <label for="roTargetYear">New Year:</label>
+              <input type="number" id="roTargetYear" min="2026" max="2040" value="2027" style="width:85px;" />
+              <label for="roDivision">Division:</label>
+              <select id="roDivision" aria-label="Rollover division">
+                <option value="mens">Men's Twilight League</option>
+                <option value="womens">Women's League</option>
+              </select>
+              <label for="roWeeks">Weeks:</label>
+              <input type="number" id="roWeeks" min="1" max="52" value="16" style="width:70px;" />
+              <label for="roStartDate">Start Date:</label>
+              <input type="date" id="roStartDate" value="2027-05-05" />
+            </div>
+            <button type="button" id="runRolloverBtn" class="primary">🚀 Create Season &amp; Roll Over Handicaps</button>
+          </div>
+        </div>
+
         <div class="table-wrap">
           <table id="scheduleTable">
             <caption class="sr-only">Season schedule</caption>
@@ -339,8 +407,7 @@
                 <th scope="col">Date</th>
                 <th scope="col">Half</th>
                 <th scope="col">Weather</th>
-                <th scope="col">Match 1 Pairing</th>
-                <th scope="col">Match 2 Pairing</th>
+                <th scope="col">Scheduled 2-Man Matchups (All Matches &amp; Results)</th>
                 <th scope="col">Action</th>
               </tr>
             </thead>
@@ -548,7 +615,7 @@
       <div class="panel">
         <div class="panel-header">
           <div class="form-row">
-            <h2>🗄️ Database Table Explorer (`frmDbViewer` Replacement — 380 SQLite Tables)</h2>
+            <h2>🗄️ Admin &amp; Raw SQLite Table Inspector</h2>
             <label for="rawTableSelect" class="sr-only">Database table</label>
             <select id="rawTableSelect"></select>
             <span id="rawTableCountBadge" class="badge"></span>
@@ -589,6 +656,23 @@
       <div class="drawer-body" id="careerDrawerContent"></div>
     </div>
   </div>
+
+  <!-- CLUBHOUSE PRINTABLE SHEET MODAL -->
+  <div id="clubhouseSheetModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="clubhouseModalTitle">
+    <div class="modal-dialog" style="max-width:1050px;">
+      <div class="modal-header">
+        <h2 id="clubhouseModalTitle">🖨️ ECGC Weekly Clubhouse Sheet (Print Preview)</h2>
+        <div class="form-row">
+          <button type="button" class="primary" id="confirmPrintSheetBtn">🖨️ Print 1-Page Sheet</button>
+          <button type="button" class="btn-close" id="closeClubhouseModalBtn" aria-label="Close print preview">&times;</button>
+        </div>
+      </div>
+      <div class="modal-body" id="clubhouseModalContent"></div>
+    </div>
+  </div>
+
+  <!-- DEDICATED @MEDIA PRINT 1-PAGE SHEET -->
+  <section id="clubhousePrintSheet" class="print-only-sheet" aria-label="Printable Weekly Clubhouse Sheet"></section>
 
   <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="toastAlert" class="sr-only" role="alert" aria-atomic="true"></div>

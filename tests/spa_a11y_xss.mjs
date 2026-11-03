@@ -128,9 +128,13 @@ try {
   record("A11y 4.1.2: every tab controls a labelled tabpanel", tabsWired);
 
   const fileFocusable = await page.evaluate(() => {
+    const drawer = document.getElementById("adminToolsDrawer");
+    if (drawer && !drawer.open) drawer.open = true;
     const el = document.getElementById("mdbUploadInput");
     el.focus();
-    return document.activeElement === el && getComputedStyle(el).display !== "none";
+    const ok = document.activeElement === el && getComputedStyle(el).display !== "none";
+    if (drawer) drawer.open = false;
+    return ok;
   });
   record("A11y 2.1.1: .mdb import control is keyboard-focusable", fileFocusable);
 

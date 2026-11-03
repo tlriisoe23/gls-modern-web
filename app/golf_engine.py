@@ -247,6 +247,57 @@ def get_league_standings(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
     fees = rows_as_dicts(conn.execute(f'SELECT * FROM "{f_tbl}" ORDER BY "PlayerID" ASC')) if table_exists(conn, f_tbl) else []
     prizes = rows_as_dicts(conn.execute(f'SELECT * FROM "{pr_tbl}" ORDER BY "WeekNum" ASC')) if table_exists(conn, pr_tbl) else []
 
+    res_tbl = f"{lid}PlayerResults"
+    num_holes = int(league.get("LeagueHoles") or 9)
+    p_stats: dict[int, dict[str, Any]] = {}
+    if table_exists(conn, res_tbl):
+        for r in rows_as_dicts(conn.execute(f'SELECT "PlayerID", "FrontNine", "BackNine", "IndividualPts" FROM "{res_tbl}"')):
+            pid = safe_int(r.get("PlayerID"))
+            gross = safe_int(r.get("FrontNine")) + (safe_int(r.get("BackNine")) if num_holes > 9 else 0)
+            st_entry = p_stats.setdefault(pid, {"rounds": 0, "gross_list": [], "pt_sum": 0.0})
+            st_entry["pt_sum"] += float(r.get("IndividualPts") or 0.0)
+            if gross >= 20:
+                st_entry["rounds"] += 1
+                st_entry["gross_list"].append(gross)
+
+    players_by_id: dict[int, dict[str, Any]] = {}
+    for pl in players:
+        pid = safe_int(pl.get("PlayerID"))
+        hcp = float(pl.get("Handicap") or 0.0)
+        ps = p_stats.get(pid, {"rounds": 0, "gross_list": [], "pt_sum": 0.0})
+        g_list = ps["gross_list"]
+        pl["rounds_played"] = ps["rounds"]
+        pl["gross_avg"] = round(sum(g_list) / len(g_list), 1) if g_list else None
+        pl["net_avg"] = round((sum(g_list) / len(g_list)) - round_half_up(hcp), 1) if g_list else None
+        pl["best_gross"] = min(g_list) if g_list else None
+        pl["season_pt"] = round(ps["pt_sum"], 1) if ps["rounds"] > 0 else round(float(pl.get("Points") or 0.0), 1)
+        players_by_id[pid] = pl
+
+    ecgc_st_map: dict[str, dict[str, Any]] = {}
+    if table_exists(conn, "ecgc_standings"):
+        for es in rows_as_dicts(conn.execute("SELECT * FROM ecgc_standings WHERE gls_league_id=? AND split_name='final'", (lid,))):
+            ecgc_st_map[str(es.get("team_name") or "").strip()] = es
+
+    max_team_pts = max((float(t.get("Points") or 0.0) for t in teams), default=0.0)
+    for t in teams:
+        pa_id = safe_int(t.get("PlayerA"))
+        pb_id = safe_int(t.get("PlayerB"))
+        pa = players_by_id.get(pa_id)
+        pb = players_by_id.get(pb_id)
+        t["PlayerA_Name"] = f"{pa.get('PlayerFirst', '')} {pa.get('PlayerLast', '')}".strip() if pa else ""
+        t["PlayerB_Name"] = f"{pb.get('PlayerFirst', '')} {pb.get('PlayerLast', '')}".strip() if pb else ""
+        t["PlayerA_Hcp"] = float(pa.get("Handicap") or 0.0) if pa else 0.0
+        t["PlayerB_Hcp"] = float(pb.get("Handicap") or 0.0) if pb else 0.0
+        comb_hcp = float(t.get("Handicap") or 0.0)
+        if comb_hcp == 0.0 and (pa or pb):
+            comb_hcp = round(t["PlayerA_Hcp"] + t["PlayerB_Hcp"], 1)
+            t["Handicap"] = comb_hcp
+        t["CombinedHcp"] = comb_hcp
+        es_row = ecgc_st_map.get(str(t.get("TeamName") or "").strip(), {})
+        t["gross_avg"] = es_row.get("gross_avg")
+        t["net_avg"] = es_row.get("net_avg")
+        t["games_behind"] = es_row.get("games_behind") if es_row.get("games_behind") is not None else round(max(0.0, max_team_pts - float(t.get("Points") or 0.0)), 1)
+
     courses = {c["CourseID"]: c for c in get_courses(conn)}
     course = courses.get(league.get("CourseID")) or courses.get(5) or (list(courses.values())[0] if courses else {})
     rules_summary = build_rules_summary(league, rules, fees)
@@ -481,11 +532,16 @@ def get_week_scorecard(conn: sqlite3.Connection, lid: int, week_num: int) -> dic
         par_played = sum(hm["par"] for hm, s in zip(holes_meta, hole_scores) if s > 0)
         over_par = (gross - par_played) if gross > 0 else 0
 
+        from . import match_engine as _me
+        ecgc_pt = _me.compute_ecgc_pt(net) if (gross > 0 and num_holes == 9) else 0.0
+        next_hcp = _me.compute_next_handicap(hcp, ecgc_pt) if (gross > 0 and num_holes == 9) else hcp
         scorecards.append({
             "PlayerID": pid,
             "TeamID": p.get("TeamID"),
             "PlayerName": f"{p.get('PlayerFirst', '')} {p.get('PlayerLast', '')}".strip(),
             "Handicap": hcp,
+            "ecgc_pt": ecgc_pt,
+            "next_handicap": next_hcp,
             "holes": hole_scores,
             "adj_holes": hole_adj,
             "strokes_received": hole_strokes,
@@ -567,12 +623,147 @@ def get_week_scorecard(conn: sqlite3.Connection, lid: int, week_num: int) -> dic
 
 
 def auto_score_week_matches(conn: sqlite3.Connection, lid: int, week_num: int) -> dict[str, Any]:
-    """Compute and persist Head-to-Head Match Points, Field Points, *TeamResults, and Season Totals (AGY-F2 / CDX-F1..F3)."""
+    """Compute and persist Head-to-Head Match Points (or ECGC 2-Man Team Match + PT), Field Points, *TeamResults, and Season Totals."""
     sc = get_week_scorecard(conn, lid, week_num)
     rules_summary = sc["rules_summary"]
     matchups = sc["matchups"]
     scorecards = sc["scorecards"]
     week_sched = sc["schedule"]
+
+    if lid >= 20180:
+        from . import match_engine as _me
+        rules_cfg: dict[str, Any] = {}
+        if table_exists(conn, "league_rules_config"):
+            rc_rows = rows_as_dicts(conn.execute("SELECT * FROM league_rules_config WHERE league_id=?", (lid,)))
+            if rc_rows:
+                rules_cfg = rc_rows[0]
+
+        res_tbl = f"{lid}PlayerResults"
+        p_tbl = f"{lid}Players"
+        tr_tbl = f"{lid}TeamResults"
+        t_tbl = f"{lid}Teams"
+        teams_by_id = {safe_int(t.get("TeamID")): t for t in sc.get("teams", [])}
+        if not teams_by_id and table_exists(conn, t_tbl):
+            teams_by_id = {safe_int(t.get("TeamID")): t for t in rows_as_dicts(conn.execute(f'SELECT * FROM "{t_tbl}"'))}
+
+        pars = [int(h.get("par") or 4) for h in (sc.get("holes_meta") or [])[:9]] or [4, 4, 4, 3, 5, 5, 4, 3, 4]
+        ranks = stroke_index_map((sc.get("holes_meta") or [])[:9]) or [7, 1, 5, 4, 6, 3, 2, 8, 9]
+
+        pt_by_pid: dict[int, float] = {}
+        for c in scorecards:
+            if c["Gross"] > 0:
+                pt_val = _me.compute_ecgc_pt(
+                    c["Net"],
+                    net_bonus_below_max=int(rules_cfg.get("net_bonus_below_max", 35)),
+                    net_bonus_pts=float(rules_cfg.get("net_bonus_pts", 1.0)),
+                    net_even_min=int(rules_cfg.get("net_even_min", 36)),
+                    net_even_max=int(rules_cfg.get("net_even_max", 36)),
+                    net_even_pts=float(rules_cfg.get("net_even_pts", 0.0)),
+                    net_penalty_above_min=int(rules_cfg.get("net_penalty_above_min", 37)),
+                    net_penalty_pts=float(rules_cfg.get("net_penalty_pts", -1.0)),
+                )
+                pt_by_pid[int(c["PlayerID"])] = pt_val
+
+        cards_by_tid: dict[int, list[dict[str, Any]]] = {}
+        for c in scorecards:
+            tid = safe_int(c.get("TeamID"))
+            if tid > 0:
+                cards_by_tid.setdefault(tid, []).append(c)
+
+        with conn:
+            if pt_by_pid:
+                conn.executemany(
+                    f'UPDATE "{res_tbl}" SET "IndividualPts"=? WHERE "WeekNum"=? AND "PlayerID"=?',
+                    [(pt, week_num, pid) for pid, pt in pt_by_pid.items()],
+                )
+
+            for m_idx in range(1, 12):
+                t1 = safe_int(week_sched.get(f"Match{m_idx}Team1"))
+                t2 = safe_int(week_sched.get(f"Match{m_idx}Team2"))
+                if t1 <= 0 or t2 <= 0:
+                    continue
+                t1_cards = [c for c in cards_by_tid.get(t1, []) if c["Gross"] > 0]
+                t2_cards = [c for c in cards_by_tid.get(t2, []) if c["Gross"] > 0]
+                if not t1_cards and not t2_cards:
+                    continue
+
+                def _mk_player_payload(card_list: list[dict[str, Any]], idx: int, default_label: str) -> dict[str, Any]:
+                    if idx < len(card_list):
+                        c_item = card_list[idx]
+                        return {
+                            "player_id": c_item["PlayerID"],
+                            "player_name": c_item["PlayerName"],
+                            "handicap": c_item["Handicap"],
+                            "gross_scores": c_item["holes"][:9],
+                        }
+                    return {"player_name": default_label, "handicap": 0.0, "gross_scores": pars, "unplayed": True}
+
+                ta_obj = {
+                    "team_id": t1,
+                    "team_name": teams_by_id.get(t1, {}).get("TeamName") or f"Team {t1}",
+                    "player1": _mk_player_payload(t1_cards, 0, f"Team {t1} P1"),
+                    "player2": _mk_player_payload(t1_cards, 1, f"Team {t1} P2"),
+                }
+                tb_obj = {
+                    "team_id": t2,
+                    "team_name": teams_by_id.get(t2, {}).get("TeamName") or f"Team {t2}",
+                    "player1": _mk_player_payload(t2_cards, 0, f"Team {t2} P1"),
+                    "player2": _mk_player_payload(t2_cards, 1, f"Team {t2} P2"),
+                }
+                m_res = _me.score_ecgc_2person_match(ta_obj, tb_obj, hole_ranks=ranks, pars=pars, rules=rules_cfg)
+
+                for tid, side_key, cards_active in ((t1, "team_a", t1_cards), (t2, "team_b", t2_cards)):
+                    side = m_res[side_key]
+                    tot_pts = float(side["total_points"])
+                    hole_pts = float(side["hole_points"])
+                    t_act = sum(x["Gross"] for x in cards_active)
+                    t_net = sum(x["Net"] for x in cards_active)
+                    if table_exists(conn, tr_tbl):
+                        ex = conn.execute(f'SELECT 1 FROM "{tr_tbl}" WHERE "WeekNum"=? AND "TeamID"=?', (week_num, tid)).fetchone()
+                        if ex:
+                            conn.execute(
+                                f'UPDATE "{tr_tbl}" SET "TeamPts"=?, "MatchPts"=?, "TeamActual"=?, "TeamNet"=? WHERE "WeekNum"=? AND "TeamID"=?',
+                                (tot_pts, hole_pts, t_act, t_net, week_num, tid),
+                            )
+                        else:
+                            conn.execute(
+                                f'INSERT INTO "{tr_tbl}" ("WeekNum","TeamID","TeamPts","MatchPts","FieldPts","TeamActual","TeamNet","SubPts","UserDefinedPts") VALUES (?,?,?,?,0,?,?,0,0)',
+                                (week_num, tid, tot_pts, hole_pts, t_act, t_net),
+                            )
+
+                if table_exists(conn, "ecgc_matches") and table_exists(conn, "ecgc_events"):
+                    ev_row = conn.execute(
+                        "SELECT id FROM ecgc_events WHERE gls_league_id=? AND week_number=?",
+                        (lid, week_num),
+                    ).fetchone()
+                    if ev_row:
+                        conn.execute(
+                            """
+                            UPDATE ecgc_matches
+                            SET team_a_points=?, team_b_points=?, result_summary=?
+                            WHERE event_id=? AND match_number=?
+                            """,
+                            (
+                                m_res["team_a"]["total_points"],
+                                m_res["team_b"]["total_points"],
+                                m_res["summary"],
+                                ev_row[0],
+                                m_idx,
+                            ),
+                        )
+
+            # Recompute cumulative player season PT points
+            player_pts_params = [
+                (round(float(pr_row["s"]), 2), pr_row["PlayerID"])
+                for pr_row in rows_as_dicts(
+                    conn.execute(f'SELECT "PlayerID", COALESCE(SUM("IndividualPts"),0) AS s FROM "{res_tbl}" GROUP BY "PlayerID"')
+                )
+                if pr_row["s"] is not None
+            ]
+            if player_pts_params:
+                conn.executemany(f'UPDATE "{p_tbl}" SET "Points"=? WHERE "PlayerID"=?', player_pts_params)
+
+        return get_week_scorecard(conn, lid, week_num)
 
     pts_by_pid: dict[int, float] = {}
     for m in matchups:
@@ -885,18 +1076,34 @@ def generate_schedule(conn: sqlite3.Connection, lid: int, weeks: int = 16, start
             pairings_per_week.append(wk_pairs)
             teams_list = [teams_list[0]] + [teams_list[-1]] + teams_list[1:-1]
 
+    sched_cols = {d[1] for d in conn.execute(f'PRAGMA table_info("{sched_tbl}")').fetchall()}
+    has_11_matches = "Match11Team2" in sched_cols
     with conn:
         conn.execute(f'DELETE FROM "{sched_tbl}"')
         for w in range(1, weeks + 1):
             pairs = pairings_per_week[(w - 1) % len(pairings_per_week)]
-            m1t1, m1t2 = pairs[0] if len(pairs) > 0 else (1, 2)
-            m2t1, m2t2 = pairs[1] if len(pairs) > 1 else (3, 4)
             half = 1 if w <= (weeks // 2) else 2
             date_str = (dt + timedelta(days=7 * (w - 1))).strftime("%m/%d/%y 00:00:00")
-            conn.execute(
-                f'INSERT INTO "{sched_tbl}" ("WeekNum","Date","DateType","CourseID","SchedUsed","Half","Weather","Match1Team1","Match1Team2","Match2Team1","Match2Team2") '
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (w, date_str, 1, course_id, -1, half, "Clear", m1t1, m1t2, m2t1, m2t2),
-            )
+            if has_11_matches:
+                m_vals: list[int | None] = []
+                for idx_m in range(11):
+                    if idx_m < len(pairs):
+                        m_vals.extend([pairs[idx_m][0], pairs[idx_m][1]])
+                    else:
+                        m_vals.extend([None, None])
+                m_cols = ", ".join(f'"Match{i}Team1","Match{i}Team2"' for i in range(1, 12))
+                qs = ", ".join("?" for _ in range(7 + len(m_vals)))
+                conn.execute(
+                    f'INSERT INTO "{sched_tbl}" ("WeekNum","Date","DateType","CourseID","SchedUsed","Half","Weather",{m_cols}) VALUES ({qs})',
+                    [w, date_str, 1, course_id, -1, half, "Clear", *m_vals],
+                )
+            else:
+                m1t1, m1t2 = pairs[0] if len(pairs) > 0 else (1, 2)
+                m2t1, m2t2 = pairs[1] if len(pairs) > 1 else (3, 4)
+                conn.execute(
+                    f'INSERT INTO "{sched_tbl}" ("WeekNum","Date","DateType","CourseID","SchedUsed","Half","Weather","Match1Team1","Match1Team2","Match2Team1","Match2Team2") '
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (w, date_str, 1, course_id, -1, half, "Clear", m1t1, m1t2, m2t1, m2t2),
+                )
 
     return rows_as_dicts(conn.execute(f'SELECT * FROM "{sched_tbl}" ORDER BY "WeekNum" ASC'))

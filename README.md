@@ -62,7 +62,7 @@ Test layout:
 ## Automated Repository Inventory (Auto-Synced)
 
 - **Verification Suite (`pytest`):** `pytest -q` (`>= 5` test modules discovered)
-- **Discovered API Endpoints (29):**
+- **Discovered API Endpoints (33):**
   - `GET /favicon.ico` (`app/main.py`)
   - `GET /api/health` (`app/main.py`)
   - `GET /api/leagues` (`app/main.py`)
@@ -90,6 +90,10 @@ Test layout:
   - `GET /api/rules/config/{lid}` (`app/main.py`)
   - `POST /api/rules/config/{lid}` (`app/main.py`)
   - `POST /api/rules/simulate` (`app/main.py`)
+  - `GET /api/ecgc/course-analytics` (`app/main.py`)
+  - `POST /api/leagues/{lid}/teams/{team_id}` (`app/main.py`)
+  - `POST /api/ecgc/leagues/{lid}/week/{week_num}/matchups` (`app/main.py`)
+  - `POST /api/ecgc/seasons/rollover` (`app/main.py`)
   - `GET /api/export/sqlite` (`app/main.py`)
   - `GET /` (`app/main.py`)
 <!-- AUTO-REPO-INVENTORY:END -->

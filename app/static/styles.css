@@ -1030,3 +1030,160 @@ button.gold:hover {
   background: var(--gold);
   color: #000;
 }
+
+
+/* ECGC 3-Squad Overhaul Additions */
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 2px 4px;
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-underline-offset: 3px;
+  border-radius: 4px;
+  text-align: left;
+}
+.link-btn:hover,
+.link-btn:focus-visible {
+  background: var(--accent-soft);
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.badge.pt-plus {
+  background: var(--accent-soft);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  font-weight: 700;
+}
+.badge.pt-minus {
+  background: var(--gold-soft);
+  color: var(--text);
+  border: 1px solid var(--gold);
+  font-weight: 700;
+}
+.badge.pt-even {
+  background: var(--bg-elev);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.sched-matches-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sched-match-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.78rem;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.sched-match-pill:hover,
+.sched-match-pill:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  outline: 2px solid var(--focus);
+}
+
+.matchup-group-row td {
+  background: var(--bg-elev);
+  font-weight: 700;
+  color: var(--text);
+  border-top: 2px solid var(--accent);
+  padding: 8px 12px;
+}
+
+.clubhouse-sheet-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 900px) {
+  .clubhouse-sheet-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.print-only-sheet {
+  display: none;
+}
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11px !important;
+  }
+  .topbar,
+  .tabs-bar,
+  .filter-bar,
+  #kpiStrip,
+  .tab-pane,
+  .modal-backdrop,
+  .drawer-backdrop,
+  .toast,
+  .skip-link {
+    display: none !important;
+  }
+  .print-only-sheet {
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .print-only-sheet h2,
+  .print-only-sheet h3 {
+    margin: 6px 0 4px 0 !important;
+    color: #000 !important;
+  }
+  .print-only-sheet table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    margin-bottom: 10px !important;
+  }
+  .print-only-sheet th,
+  .print-only-sheet td {
+    border: 1px solid #94a3b8 !important;
+    padding: 3px 6px !important;
+    font-size: 10px !important;
+    color: #000 !important;
+  }
+}
+
+.admin-drawer {
+  position: relative;
+  display: inline-block;
+}
+.admin-drawer > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.admin-drawer > summary::-webkit-details-marker {
+  display: none;
+}
+.admin-drawer-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 210px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}

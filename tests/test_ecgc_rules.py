@@ -274,3 +274,32 @@ def test_ecgc_api_endpoints():
     assert m_data["count"] > 0
     assert "week_number" in m_data["matches"][0]
     assert m_data["matches"][0]["week_number"] == 1
+
+
+def test_ecgc_is_default_9hole_course(client):
+    c_res = client.get("/api/courses").json()
+    assert c_res["default_course_id"] == 5
+    assert c_res["default_holes"] == 9
+    first = c_res["courses"][0]
+    assert first["CourseID"] == 5
+    assert first["CourseName"] == "Edwards County Golf Course"
+    assert first["is_default"] is True
+    assert first["NumHoles"] == 9
+    assert len(first["holes"]) == 9
+    assert first["front_par"] == 36
+    assert first["back_par"] == 0
+    assert first["total_par"] == 36
+
+    l_res = client.get("/api/leagues").json()
+    assert l_res["default_league_id"] == 20261
+    assert l_res["default_course_id"] == 5
+    assert l_res["default_holes"] == 9
+    assert l_res["leagues"][0]["LeagueID"] == 20261
+    assert l_res["leagues"][0]["CourseID"] == 5
+    assert l_res["leagues"][0]["LeagueHoles"] == 9
+
+    wk_res = client.get("/api/leagues/20261/week/1").json()
+    assert wk_res["num_holes"] == 9
+    assert len(wk_res["holes_meta"]) == 9
+    assert wk_res["course"]["CourseID"] == 5
+    assert wk_res["course"]["NumHoles"] == 9

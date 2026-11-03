@@ -823,7 +823,7 @@ function renderKpiStrip(st) {
     <div class="kpi-card">
       <div class="kpi-label">Home Course</div>
       <div class="kpi-value">${c.CourseName || "Edwards County Golf Course"}</div>
-      <div class="kpi-sub">Par ${c.front_par || c.total_par || 36} ?? Rating ${c.CourseRating || 34.4} / Slope ${c.SlopeRating || 113}</div>
+      <div class="kpi-sub">${Number(c.NumHoles || lg.LeagueHoles || 9) === 9 ? "9-Hole Course ? Par " + (c.front_par || c.total_par || 36) : "18-Hole ? Par " + (c.total_par || 72)} ?? Rating ${c.CourseRating || 34.4} / Slope ${c.SlopeRating || 113}</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Teams &amp; Players</div>
@@ -1319,7 +1319,7 @@ async function loadWeekScorecard() {
           <td class="num">${overStr}</td>
           <td class="num">${row.Gross > 0 ? row.StablefordNet : "-"}</td>
           <td class="num"><input type="number" min="0" max="100" class="stat-input putts-inp" value="${row.NumPutts || 0}" aria-label="${name}, putts" /></td>
-          <td class="num"><input type="number" min="0" max="18" class="stat-input gir-inp" value="${row.GreensInRegulation || 0}" aria-label="${name}, greens in regulation" /></td>
+          <td class="num"><input type="number" min="0" max="${sc.num_holes || 9}" class="stat-input gir-inp" value="${row.GreensInRegulation || 0}" aria-label="${name}, greens in regulation" /></td>
           <td class="num"><input type="number" step="0.5" class="stat-input pts-inp" value="${row.IndividualPts || 0}" aria-label="${name}, individual points" /></td>
           <td><button type="button" class="primary save-score-btn" data-pid="${row.PlayerID}" aria-label="Save scores for ${name}">Save</button></td>
         </tr>
@@ -1552,25 +1552,52 @@ async function loadCoursesTab() {
     document.getElementById("coursesContainer"),
     html`${state.courses.map((c) => {
       const sumYards = (arr) => arr.reduce((a, x) => a + Number(x.yards || 0), 0);
+      const isNine = Number(c.NumHoles || c.holes.length) === 9;
+      const isDefault = Boolean(c.is_default || Number(c.CourseID) === 5);
+      const teesText = (c.tees || []).length > 0
+        ? " ? Tees: " + c.tees.map((t) => `${t.TeeName} (${t.TotalYards}y ${t.Rating}/${t.Slope})`).join(", ")
+        : "";
+      const subText = isNine
+        ? `9-Hole Course ? Par ${c.total_par} ? Course Rating: ${c.CourseRating} ? Slope Rating: ${c.SlopeRating}${teesText}`
+        : `18-Hole Course ? Course Rating: ${c.CourseRating} ? Slope Rating: ${c.SlopeRating} ? Front Par ${c.front_par} / Back Par ${c.back_par} (Total Par ${c.total_par})`;
       return html`
       <div class="panel">
         <div class="panel-header">
           <div>
-            <h2><span aria-hidden="true">???</span> ${c.CourseName} (${c.CourseCity || c.City || "Kinsley"}, ${c.CourseState || c.State || "KS"})</h2>
-            <div class="brand-sub">Course Rating: ${c.CourseRating} ?? Slope Rating: ${c.SlopeRating} ?? Front Par ${c.front_par} / Back Par ${c.back_par} (Total Par ${c.total_par})</div>
+            <h2><span aria-hidden="true">?</span> ${c.CourseName} (${c.CourseCity || c.City || "Kinsley"}, ${c.CourseState || c.State || "KS"})</h2>
+            <div class="brand-sub">${subText}</div>
           </div>
-          <span class="badge">Course ID #${c.CourseID}</span>
+          <div style="display:flex;gap:8px;align-items:center;">
+            ${isDefault ? html`<span class="badge gold">Default League Course ? 9 Holes</span>` : html`<span class="badge">${isNine ? "9 Holes" : "18 Holes"}</span>`}
+            <span class="badge">Course ID #${c.CourseID}</span>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
             <caption class="sr-only">${c.CourseName} hole-by-hole card</caption>
             <thead>
-              <tr><th scope="col">Metric</th>${c.holes.map((h) => html`<th scope="col" class="num">H${h.hole}</th>`)}<th scope="col" class="num">Front 9</th><th scope="col" class="num">Back 9</th><th scope="col" class="num">Total</th></tr>
+              <tr>
+                <th scope="col">Metric</th>
+                ${c.holes.map((h) => html`<th scope="col" class="num">H${h.hole}</th>`)}
+                ${isNine ? html`<th scope="col" class="num">9-Hole Total</th>` : html`<th scope="col" class="num">Front 9</th><th scope="col" class="num">Back 9</th><th scope="col" class="num">Total</th>`}
+              </tr>
             </thead>
             <tbody>
-              <tr><th scope="row">Par</th>${c.holes.map((h) => html`<td class="num"><strong>${h.par}</strong></td>`)}<td class="num">${c.front_par}</td><td class="num">${c.back_par}</td><td class="num"><strong>${c.total_par}</strong></td></tr>
-              <tr><th scope="row">Yards</th>${c.holes.map((h) => html`<td class="num">${h.yards}</td>`)}<td class="num">${sumYards(c.holes.slice(0, 9))}</td><td class="num">${sumYards(c.holes.slice(9, 18))}</td><td class="num">${sumYards(c.holes)}</td></tr>
-              <tr><th scope="row">Handicap Stroke Index</th>${c.holes.map((h) => html`<td class="num"><span class="badge gold">#${h.handicap_rank}</span></td>`)}<td class="num">-</td><td class="num">-</td><td class="num">1..18</td></tr>
+              <tr>
+                <th scope="row">Par</th>
+                ${c.holes.map((h) => html`<td class="num"><strong>${h.par}</strong></td>`)}
+                ${isNine ? html`<td class="num"><strong>${c.total_par}</strong></td>` : html`<td class="num">${c.front_par}</td><td class="num">${c.back_par}</td><td class="num"><strong>${c.total_par}</strong></td>`}
+              </tr>
+              <tr>
+                <th scope="row">Yards</th>
+                ${c.holes.map((h) => html`<td class="num">${h.yards}</td>`)}
+                ${isNine ? html`<td class="num"><strong>${sumYards(c.holes)}</strong></td>` : html`<td class="num">${sumYards(c.holes.slice(0, 9))}</td><td class="num">${sumYards(c.holes.slice(9, 18))}</td><td class="num">${sumYards(c.holes)}</td>`}
+              </tr>
+              <tr>
+                <th scope="row">Handicap Stroke Index</th>
+                ${c.holes.map((h) => html`<td class="num"><span class="badge gold">#${h.handicap_rank}</span></td>`)}
+                ${isNine ? html`<td class="num">9 Holes (Odd 1..17)</td>` : html`<td class="num">-</td><td class="num">-</td><td class="num">1..18</td>`}
+              </tr>
             </tbody>
           </table>
         </div>

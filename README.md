@@ -6,6 +6,19 @@ Replaces the 1990s 32-bit Visual Basic 6.0 executable (`Gls90.exe` + `SPR32X60.o
 
 ---
 
+## Edwards County Golf Course (ECGC) 9-Hole League Secretary (`AIS-550`–`AIS-553`)
+
+- **Default Course, League & Crisp Light Theme**:
+  - Defaults to **Edwards County Golf Course (`CourseID=5`, Kinsley, KS — 9 Holes, Par 36, `[4,3,4,4,4,4,5,3,5]`)**, **`2026 ECGC Men's League` (`LeagueID=20261`)**, and the **Crisp Light (`#f8faf8`)** theme across all **18 historical Men's & Women's seasons (`2018–2026`: `128` golfers, `244` 2-man teams, `1,611` matches, `5,521` rounds, `49,689` hole scores)**.
+  - **Naming Invariant**: All ECGC leagues use canonical `ECGC Men's League` and `ECGC Women's League` names (`0` occurrences of `"Twilight"`).
+- **ECGC 2-Person Match Play + Net `PT` (`+1/0/-1`) & Handicap Progression (`app/golf_engine.py`)**:
+  - Computes 9-hole 2-person match points (`1.0` win / `0.5` tie, `9.0` max) plus per-player Net vs. Par 36 `PT` bonus/penalty (`+1` / `0` / `-1`) and automatic weekly handicap progression (`HCP_next = clamp(HCP_prev - PT, 0, 36)`).
+- **Analytics, Pairing Builder, Season Rollover & Printable Clubhouse Sheet**:
+  - Includes `GET /api/ecgc/course-analytics` (Hole 1–9 toughness & player career matrix), `POST /api/ecgc/leagues/{id}/generate-week` (round-robin pairing builder), `POST /api/ecgc/leagues/rollover` (new season rollover wizard), and a 1-page `@media print` Clubhouse Sheet.
+- **Verification**: `PYTHONPATH=. pytest -q tests/` passes **`55 / 55` tests** (`tests/test_ecgc_9hole_default.py`, `tests/test_ecgc_three_squad_overhaul.py`, and full regression suite).
+
+---
+
 ## ✨ V2 Capabilities (3-Squad Audited: AGY → Codex → Claude)
 
 1. **Automatic `.mdb` + Round-Robin Schedule Migration (`app/mdb_migrator.py`)**:

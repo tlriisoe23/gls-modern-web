@@ -361,3 +361,32 @@ def test_mdb_migrator_closes_connection_on_subprocess_error(monkeypatch, db_path
 
     assert opened, "expected _migrate_into to open a connection"
     assert all(c.closed_flag for c in opened), "connection was leaked on subprocess error"
+
+def test_readme_api_inventory_matches_code():
+    """Contract unit test verifying HTTP endpoints match documented fields in the inventory."""
+    import re
+    from pathlib import Path
+    from app.main import create_app
+
+    app = create_app()
+    app_routes = set()
+    for route in app.routes:
+        if hasattr(route, 'methods'):
+            if route.path in {'/docs', '/docs/oauth2-redirect', '/redoc', '/openapi.json'}:
+                continue
+            for method in route.methods:
+                if method not in {'HEAD', 'OPTIONS'}:
+                    app_routes.add(f"{method} {route.path}")
+
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+    match = re.search(r'<!-- AUTO-REPO-INVENTORY:START -->(.*?)<!-- AUTO-REPO-INVENTORY:END -->', readme, re.DOTALL)
+    assert match is not None, "Could not find AUTO-REPO-INVENTORY section in README.md"
+
+    inventory = match.group(1)
+    readme_routes = set(re.findall(r'- \`((?:GET|POST|PUT|PATCH|DELETE|OPTIONS) [^\`]+)\`', inventory))
+
+    missing_in_readme = app_routes - readme_routes
+    missing_in_app = readme_routes - app_routes
+
+    assert not missing_in_readme, f"Endpoints in app but missing in README: {missing_in_readme}"
+    assert not missing_in_app, f"Endpoints in README but missing in app: {missing_in_app}"

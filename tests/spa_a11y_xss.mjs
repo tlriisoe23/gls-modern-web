@@ -174,7 +174,19 @@ try {
   });
   record("A11y 1.3.1: score inputs name player + hole", /, hole \d+ score/.test(scoreLabel), scoreLabel);
 
+  // Empty states have role="status"
+  await page.click("#tabbtn-explorer");
+  await page.selectOption("#rawTableSelect", "EmptyTestTable");
+  await page.waitForFunction(() => document.querySelector("#rawTableGrid tbody")?.innerText.includes("0 rows"));
+  const emptyHasStatus = await page.evaluate(() => {
+    const td = document.querySelector("#rawTableGrid tbody td.brand-sub");
+    const span = document.querySelector('#rawTableGrid tbody td [role="status"]');
+    return !!span && (!td || !td.hasAttribute("role"));
+  });
+  record("A11y 4.1.3: empty states are status messages", emptyHasStatus, "Empty table message lacks role=status on span or has it on td");
+
   // Client-side validation of hole scores is announced, not silently sent.
+  await page.click("#tabbtn-scorecard");
   const firstInput = page.locator("#scorecardTable .score-input").first();
   await firstInput.fill("25");
   await page.locator("#scorecardTable .save-score-btn").first().click();

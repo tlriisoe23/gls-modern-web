@@ -38,7 +38,11 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+import sqlite3
+
 def test_spa_xss_and_accessibility(db_path: Path):
+    with sqlite3.connect(db_path) as conn:
+        conn.execute('CREATE TABLE IF NOT EXISTS "EmptyTestTable" ("id" INTEGER)')
     port = _free_port()
     env = {**os.environ, "GLS9_DB_PATH": str(db_path), "PYTHONPATH": str(ROOT)}
     server = subprocess.Popen(

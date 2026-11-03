@@ -51,7 +51,8 @@ try {
     await d.dismiss();
   });
 
-  await page.goto(BASE_URL, { waitUntil: "networkidle" });
+  const targetUrl = BASE_URL.includes("?") ? `${BASE_URL}&league=${LEAGUE}` : `${BASE_URL}?league=${LEAGUE}`;
+  await page.goto(targetUrl, { waitUntil: "networkidle" });
   await page.waitForSelector("#playersLeaderTable tbody tr");
 
   // ---------------------------------------------------------------- XSS

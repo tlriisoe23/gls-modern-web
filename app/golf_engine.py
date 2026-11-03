@@ -107,9 +107,11 @@ def get_courses(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def strokes_on_hole(player_hcp: float, hole_rank: int, num_holes: int = 18) -> int:
-    """Calculate handicap strokes received on a hole given player handicap and hole rank."""
-    hcp = max(0, round_half_up(player_hcp))
-    if hcp <= 0:
+    """Calculate handicap strokes received on a hole given player handicap and hole rank.
+    Supports plus-handicaps (negative values, e.g. -2.0 for +2), where golfers give
+    strokes back to the course on the easiest holes (highest rank numbers)."""
+    hcp = round_half_up(player_hcp)
+    if hcp == 0:
         return 0
     n = 9 if num_holes == 9 else 18
     rank = safe_int(hole_rank, n)
@@ -117,9 +119,16 @@ def strokes_on_hole(player_hcp: float, hole_rank: int, num_holes: int = 18) -> i
         # 18-hole course rank supplied for a 9-hole round: compress 1..18 -> 1..9.
         rank = (rank + 1) // 2
     rank = min(max(rank, 1), n)
-    base = hcp // n
-    rem = hcp % n
-    return base + (1 if rank <= rem else 0)
+
+    if hcp > 0:
+        base = hcp // n
+        rem = hcp % n
+        return base + (1 if rank <= rem else 0)
+    else:
+        abs_hcp = abs(hcp)
+        base = -(abs_hcp // n)
+        rem = abs_hcp % n
+        return base - (1 if rank >= (n - rem + 1) else 0)
 
 
 def apply_esc_cap(score: int, par: int, player_hcp: float, adjust_mode: int = 1, num_holes: int = 18) -> int:
@@ -512,6 +521,23 @@ def get_week_scorecard(conn: sqlite3.Connection, lid: int, week_num: int) -> dic
             if len(winners_n) == 1:
                 net_skins.append({"hole": h_num, "net_score": min_n, "par": hm["par"], "player": winners_n[0][1], "PlayerID": winners_n[0][2]})
 
+    ecgc_matches: list[dict[str, Any]] = []
+    if table_exists(conn, "ecgc_matches") and table_exists(conn, "ecgc_events"):
+        ecgc_matches = rows_as_dicts(
+            conn.execute(
+                """
+                SELECT m.id AS match_id, m.match_number, m.team_a_id, m.team_a_name, m.team_a_points,
+                       m.team_b_id, m.team_b_name, m.team_b_points, m.winner_label, m.result_summary,
+                       e.event_code, e.event_title, e.event_date, e.stage
+                FROM ecgc_matches m
+                JOIN ecgc_events e ON e.id = m.event_id
+                WHERE m.gls_league_id = ? AND e.week_number = ?
+                ORDER BY m.match_number ASC, m.id ASC
+                """,
+                (lid, week_num),
+            )
+        )
+
     return {
         "league_id": lid,
         "league_name": league.get("LeagueName"),
@@ -523,6 +549,7 @@ def get_week_scorecard(conn: sqlite3.Connection, lid: int, week_num: int) -> dic
         "schedule": week_sched,
         "scorecards": scorecards,
         "matchups": matchups,
+        "ecgc_matches": ecgc_matches,
         "team_results": team_results,
         "gross_skins": gross_skins,
         "net_skins": net_skins,
@@ -763,6 +790,17 @@ def recalculate_handicaps(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
             if tot > 20:
                 res_scores.setdefault(pid, []).append(tot)
 
+    # Check for league rules configuration (plus handicaps, progression mode)
+    min_hcp = 0.0
+    progression_mode = "usga_average"
+    if table_exists(conn, "league_rules_config"):
+        cfg_row = conn.execute('SELECT plus_handicaps_enabled, handicap_progression_mode FROM league_rules_config WHERE league_id=?', (lid,)).fetchone()
+        if cfg_row:
+            if cfg_row[0]:
+                min_hcp = -10.0
+            if cfg_row[1]:
+                progression_mode = str(cfg_row[1])
+
     updated = []
     with conn:
         player_updates = []
@@ -771,7 +809,7 @@ def recalculate_handicaps(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
             rounds = (past_map.get(pid, []) + res_scores.get(pid, []))[-10:]
             if rounds:
                 avg_over = sum(r - par_target for r in rounds) / len(rounds)
-                new_hcp = max(0.0, min(max_hcp, round(avg_over * pct, 1)))
+                new_hcp = max(min_hcp, min(max_hcp, round(avg_over * pct, 1)))
                 player_updates.append((new_hcp, pid))
                 updated.append({"PlayerID": pid, "PlayerName": f"{p.get('PlayerFirst','')} {p.get('PlayerLast','')}".strip(), "rounds_used": len(rounds), "new_handicap": new_hcp})
 

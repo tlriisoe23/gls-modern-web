@@ -1,0 +1,276 @@
+"""Tests for ECGC Historical Data Import, Rules Engine Overhaul & Scoring Simulator."""
+
+import sqlite3
+import pytest
+from fastapi.testclient import TestClient
+
+from app import golf_engine as ge, match_engine as me
+from app.main import create_app
+
+
+def test_plus_handicap_strokes_on_hole():
+    """Plus-handicap golfers (+1 to +10, i.e. negative handicap) give strokes back
+
+    to the course on the easiest holes (highest rank numbers: rank 9, 8, 7...).
+    """
+    # 9-hole course, ranks 1 (hardest) to 9 (easiest)
+    # +1 handicap (-1.0): gives 1 stroke back on rank 9 (easiest hole)
+    assert ge.strokes_on_hole(-1.0, 9, 9) == -1
+    for r in range(1, 9):
+        assert ge.strokes_on_hole(-1.0, r, 9) == 0
+
+    # +2 handicap (-2.0): gives strokes back on rank 8 and rank 9
+    assert ge.strokes_on_hole(-2.0, 9, 9) == -1
+    assert ge.strokes_on_hole(-2.0, 8, 9) == -1
+    for r in range(1, 8):
+        assert ge.strokes_on_hole(-2.0, r, 9) == 0
+
+    # +3 handicap (-3.0): gives strokes back on ranks 7, 8, 9
+    assert ge.strokes_on_hole(-3.0, 9, 9) == -1
+    assert ge.strokes_on_hole(-3.0, 8, 9) == -1
+    assert ge.strokes_on_hole(-3.0, 7, 9) == -1
+    for r in range(1, 7):
+        assert ge.strokes_on_hole(-3.0, r, 9) == 0
+
+    # +10 handicap (-10.0): gives 2 strokes back on rank 9, 1 stroke back on ranks 1-8
+    assert ge.strokes_on_hole(-10.0, 9, 9) == -2
+    for r in range(1, 9):
+        assert ge.strokes_on_hole(-10.0, r, 9) == -1
+    total_strokes = sum(ge.strokes_on_hole(-10.0, r, 9) for r in range(1, 10))
+    assert total_strokes == -10
+
+
+def test_plus_handicap_strokes_per_hole():
+    """Test match_engine.strokes_per_hole for plus-handicap golfers."""
+    ranks = [7, 1, 5, 4, 6, 3, 2, 8, 9]  # ECGC 9-hole ranks
+
+    # Scratch (0.0): 0 strokes on all holes
+    assert me.strokes_per_hole(0.0, ranks, 9) == [0] * 9
+
+    # +1 handicap (-1.0): -1 on Hole 9 (rank 9)
+    res_plus1 = me.strokes_per_hole(-1.0, ranks, 9)
+    assert res_plus1 == [0, 0, 0, 0, 0, 0, 0, 0, -1]
+    assert sum(res_plus1) == -1
+
+    # +2 handicap (-2.0): -1 on Hole 8 (rank 8) and Hole 9 (rank 9)
+    res_plus2 = me.strokes_per_hole(-2.0, ranks, 9)
+    assert res_plus2 == [0, 0, 0, 0, 0, 0, 0, -1, -1]
+    assert sum(res_plus2) == -2
+
+    # +3 handicap (-3.0): -1 on Hole 1 (rank 7), Hole 8 (rank 8), Hole 9 (rank 9)
+    res_plus3 = me.strokes_per_hole(-3.0, ranks, 9)
+    assert res_plus3 == [-1, 0, 0, 0, 0, 0, 0, -1, -1]
+    assert sum(res_plus3) == -3
+
+    # Standard positive handicap (12.0): receives strokes on all 9 holes + extra on 3 hardest
+    res_pos12 = me.strokes_per_hole(12.0, ranks, 9)
+    assert sum(res_pos12) == 12
+    # Ranks <= 3 (Holes 2, 7, 6) receive 2 strokes, others receive 1
+    assert res_pos12[1] == 2  # Hole 2 (rank 1)
+    assert res_pos12[6] == 2  # Hole 7 (rank 2)
+    assert res_pos12[5] == 2  # Hole 6 (rank 3)
+    assert res_pos12[0] == 1  # Hole 1 (rank 7)
+
+
+def test_ecgc_pt_bonus_penalty_and_progression():
+    """Test per-player Net vs Par bonus/penalty (PT) and weekly handicap progression."""
+    # Net <= 35 -> PT = +1.0
+    assert me.compute_ecgc_pt(33) == 1.0
+    assert me.compute_ecgc_pt(35) == 1.0
+
+    # Net == 36 -> PT = 0.0
+    assert me.compute_ecgc_pt(36) == 0.0
+
+    # Net >= 37 -> PT = -1.0
+    assert me.compute_ecgc_pt(37) == -1.0
+    assert me.compute_ecgc_pt(42) == -1.0
+
+    # Handicap progression: HCP_next = HCP_prev - PT
+    # Under net par drops handicap by 1 (harder)
+    assert me.compute_next_handicap(10.0, 1.0) == 9.0
+    # Over net par increases handicap by 1 (easier)
+    assert me.compute_next_handicap(10.0, -1.0) == 11.0
+    # Even net par leaves handicap unchanged
+    assert me.compute_next_handicap(10.0, 0.0) == 10.0
+
+
+def test_score_ecgc_2person_match():
+    """Test 9-hole 2-person team match play with differential handicap and PT bonuses."""
+    ranks = [7, 1, 5, 4, 6, 3, 2, 8, 9]
+    pars = [4, 4, 4, 3, 5, 5, 4, 3, 4]  # Par 36
+
+    team_a = {
+        "team_id": 1,
+        "team_name": "Team Alpha",
+        "player1": {
+            "player_id": 101,
+            "player_name": "Alice",
+            "handicap": 8.0,
+            "gross_scores": [4, 4, 4, 3, 5, 4, 4, 3, 4],  # Gross 35, Net 27 -> PT +1.0
+        },
+        "player2": {
+            "player_id": 102,
+            "player_name": "Bob",
+            "handicap": 12.0,
+            "gross_scores": [5, 5, 5, 4, 6, 6, 5, 4, 5],  # Gross 45, Net 33 -> PT +1.0
+        },
+    }
+
+    team_b = {
+        "team_id": 2,
+        "team_name": "Team Beta",
+        "player1": {
+            "player_id": 201,
+            "player_name": "Charlie",
+            "handicap": 5.0,
+            "gross_scores": [4, 4, 4, 3, 5, 5, 4, 3, 4],  # Gross 36, Net 31 -> PT +1.0
+        },
+        "player2": {
+            "player_id": 202,
+            "player_name": "Dave",
+            "handicap": 7.0,
+            "gross_scores": [6, 6, 6, 5, 7, 7, 6, 5, 6],  # Gross 54, Net 47 -> PT -1.0
+        },
+    }
+
+    res = me.score_ecgc_2person_match(team_a, team_b, ranks, pars)
+    assert res["status"] == "scored"
+    assert res["format"] == "ecgc_2person_match"
+
+    # Hole points sum across 9 holes must equal 9.0
+    hole_pts_total = res["team_a"]["hole_points"] + res["team_b"]["hole_points"]
+    assert hole_pts_total == 9.0
+
+    # Team A players both shot net < 36 -> both get +1.0 PT -> PT total = +2.0
+    assert res["team_a"]["player1"]["pt"] == 1.0
+    assert res["team_a"]["player2"]["pt"] == 1.0
+    assert res["team_a"]["pt_bonus_total"] == 2.0
+    assert res["team_a"]["total_points"] == res["team_a"]["hole_points"] + 2.0
+
+    # Team B Charlie got +1.0, Dave got -1.0 -> PT total = 0.0
+    assert res["team_b"]["player1"]["pt"] == 1.0
+    assert res["team_b"]["player2"]["pt"] == -1.0
+    assert res["team_b"]["pt_bonus_total"] == 0.0
+    assert res["team_b"]["total_points"] == res["team_b"]["hole_points"] + 0.0
+
+    # Automatic weekly handicap progression
+    assert res["team_a"]["player1"]["hcp_next"] == 7.0  # 8.0 - 1.0
+    assert res["team_a"]["player2"]["hcp_next"] == 11.0  # 12.0 - 1.0
+    assert res["team_b"]["player2"]["hcp_next"] == 8.0  # 7.0 - (-1.0)
+
+
+def test_ecgc_api_endpoints():
+    """Test all ECGC and rules endpoints via FastAPI TestClient."""
+    app = create_app()
+    client = TestClient(app)
+
+    # 1. Health check includes all leagues
+    r = client.get("/api/health")
+    assert r.status_code == 200
+    h = r.json()
+    assert h["leagues_count"] >= 21
+    assert h["courses_count"] >= 5
+
+    # 2. ECGC Seasons endpoint
+    r = client.get("/api/ecgc/seasons")
+    assert r.status_code == 200
+    seasons = r.json()
+    assert seasons["count"] == 18
+    # Check that 2026 Men's Twilight League is present
+    slugs = {(s["season_year"], s["league_slug"]) for s in seasons["seasons"]}
+    assert (2026, "mens") in slugs
+    assert (2026, "womens") in slugs
+
+    # 3. ECGC Standings endpoint (split into first_half, second_half, final)
+    r = client.get("/api/ecgc/standings?season_year=2026&league_slug=mens")
+    assert r.status_code == 200
+    st = r.json()
+    assert "first_half" in st
+    assert "second_half" in st
+    assert "final" in st
+    assert len(st["final"]) > 0
+
+    # 4. ECGC Brackets endpoint
+    r = client.get("/api/ecgc/brackets")
+    assert r.status_code == 200
+    br = r.json()
+    assert br["count"] == 11
+    # Check 2026 bracket
+    assert any(b["season_year"] == 2026 for b in br["brackets"])
+
+    # 5. ECGC Players endpoint
+    r = client.get("/api/ecgc/players")
+    assert r.status_code == 200
+    pl = r.json()
+    assert pl["count"] == 128
+    first_player = pl["players"][0]
+    assert "career_rounds" in first_player
+    assert "avg_gross" in first_player
+    assert "total_pt_points" in first_player
+
+    # 6. ECGC Player Profile endpoint
+    pid = first_player["id"]
+    r = client.get(f"/api/ecgc/players/{pid}")
+    assert r.status_code == 200
+    profile = r.json()
+    assert "player" in profile
+    assert "season_summary" in profile
+    assert "rounds" in profile
+    assert "handicap_progression" in profile
+
+    # 7. ECGC Match Breakdown endpoint
+    # Query a known match
+    r = client.get("/api/ecgc/matches/17060/breakdown")
+    assert r.status_code == 200
+    bd = r.json()
+    assert "match" in bd
+    assert "team_a" in bd
+    assert "team_b" in bd
+    assert "holes" in bd
+    assert len(bd["holes"]) == 9
+    assert bd["team_a"]["hole_points"] + bd["team_b"]["hole_points"] == 9.0
+
+    # 8. Rules Config endpoint (GET & POST)
+    r = client.get("/api/rules/config/20261")
+    assert r.status_code == 200
+    cfg = r.json()
+    assert cfg["rule_type"] == "ecgc_2person_match"
+    assert cfg["net_bonus_below_max"] == 35
+
+    # Update config
+    update_payload = dict(cfg)
+    update_payload["net_bonus_below_max"] = 34
+    r = client.post("/api/rules/config/20261", json=update_payload)
+    assert r.status_code == 200
+    assert r.json()["net_bonus_below_max"] == 34
+    # Revert back
+    update_payload["net_bonus_below_max"] = 35
+    client.post("/api/rules/config/20261", json=update_payload)
+
+    # 9. Rules Simulate endpoint
+    sim_payload = {
+        "team_a": {
+            "name": "Team 1",
+            "player1": {"name": "P1", "handicap": 5.0, "gross_scores": [4, 4, 4, 3, 5, 5, 4, 3, 4]},
+            "player2": {"name": "P2", "handicap": 10.0, "gross_scores": [5, 5, 5, 4, 6, 6, 5, 4, 5]},
+        },
+        "team_b": {
+            "name": "Team 2",
+            "player1": {"name": "P3", "handicap": 8.0, "gross_scores": [5, 4, 4, 4, 5, 5, 4, 4, 4]},
+            "player2": {"name": "P4", "handicap": 12.0, "gross_scores": [6, 5, 5, 4, 6, 7, 5, 4, 6]},
+        },
+    }
+    r = client.post("/api/rules/simulate", json=sim_payload)
+    assert r.status_code == 200
+    sim_res = r.json()
+    assert sim_res["status"] == "scored"
+    assert "holes" in sim_res
+    assert len(sim_res["holes"]) == 9
+
+    # 10. ECGC Matches list endpoint
+    r = client.get("/api/ecgc/matches?season_year=2026&league_slug=mens&week_number=1")
+    assert r.status_code == 200
+    m_data = r.json()
+    assert m_data["count"] > 0
+    assert "week_number" in m_data["matches"][0]
+    assert m_data["matches"][0]["week_number"] == 1

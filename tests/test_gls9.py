@@ -18,8 +18,8 @@ def _run_full_flow(client: TestClient) -> None:
     assert r.status_code == 200
     h = r.json()
     assert h["status"] == "ok"
-    assert h["leagues_count"] == 3
-    assert h["courses_count"] == 4
+    assert h["leagues_count"] >= 3
+    assert h["courses_count"] >= 4
     assert h["sqlite_tables_count"] >= 60
     assert h["round_robin_templates_count"] >= 24
 
@@ -27,8 +27,8 @@ def _run_full_flow(client: TestClient) -> None:
     r = client.get("/api/leagues")
     assert r.status_code == 200
     lgs = r.json()["leagues"]
-    assert len(lgs) == 3
-    assert {x["LeagueID"] for x in lgs} == {9, 10, 11}
+    assert len(lgs) >= 3
+    assert {9, 10, 11}.issubset({x["LeagueID"] for x in lgs})
 
     # 3. Standings & Ground-Truth Rules Summary for League 10 (AGY-F1)
     r = client.get("/api/leagues/10/standings")

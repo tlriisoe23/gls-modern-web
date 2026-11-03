@@ -62,7 +62,8 @@ Test layout:
 ## Automated Repository Inventory (Auto-Synced)
 
 - **Verification Suite (`pytest`):** `pytest -q` (`>= 5` test modules discovered)
-- **Discovered API Endpoints (17):**
+- **Discovered API Endpoints (29):**
+  - `GET /favicon.ico` (`app/main.py`)
   - `GET /api/health` (`app/main.py`)
   - `GET /api/leagues` (`app/main.py`)
   - `GET /api/leagues/{lid}/standings` (`app/main.py`)
@@ -78,6 +79,25 @@ Test layout:
   - `GET /api/tables` (`app/main.py`)
   - `GET /api/tables/{table_name}` (`app/main.py`)
   - `POST /api/import/mdb` (`app/main.py`)
+  - `POST /api/import/ecgc` (`app/main.py`)
+  - `GET /api/ecgc/seasons` (`app/main.py`)
+  - `GET /api/ecgc/standings` (`app/main.py`)
+  - `GET /api/ecgc/brackets` (`app/main.py`)
+  - `GET /api/ecgc/players` (`app/main.py`)
+  - `GET /api/ecgc/players/{player_id}` (`app/main.py`)
+  - `GET /api/ecgc/matches` (`app/main.py`)
+  - `GET /api/ecgc/matches/{match_id}/breakdown` (`app/main.py`)
+  - `GET /api/rules/config/{lid}` (`app/main.py`)
+  - `POST /api/rules/config/{lid}` (`app/main.py`)
+  - `POST /api/rules/simulate` (`app/main.py`)
   - `GET /api/export/sqlite` (`app/main.py`)
   - `GET /` (`app/main.py`)
 <!-- AUTO-REPO-INVENTORY:END -->
+
+## ECGC Rules Engine & Historical Data (Stage-2 QA, AIS-547)
+
+- Source: `/workspace/ecgc-modern/data/ecgc.sqlite` -> `ecgc_*` tables via `POST /api/import/ecgc` (idempotent). Verified lossless: 128 players, 244 teams, 206 events, 1,611 matches, 5,521 rounds, 49,689 hole scores, 698 standings, 11 brackets; 632 memberships = 472 roster + 160 substitute rows.
+- Course: Edwards County GC, par `[4,4,4,3,5,5,4,3,4]` (36), hole hcp `[13,1,9,7,11,5,3,15,17]` -> 9-hole ranks `[7,1,5,4,6,3,2,8,9]`.
+- Match: 9 holes x 1 pt (tie 0.5); team diff `(A1+A2)-(B1+B2)` strokes on lowest-rank holes; plus-handicaps give strokes back on hardest-to-easiest reverse order (hcp 17, 15, 13...).
+- PT per player: net <=35 -> +1, 36 -> 0, >=37 -> -1 (configurable via `/api/rules/config/{lid}`); team total = hole pts + PT1 + PT2; next HCP = HCP - PT.
+- Known gap: historical `points_adjustment` is preserved verbatim and disagrees with the engine PT rule on 887/5,521 rounds (mostly net 34/35 recorded as 0). See `docs/ECGC_GAP_ANALYSIS_AND_OVERHAUL_PLAN.md` §6.

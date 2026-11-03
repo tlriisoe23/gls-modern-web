@@ -25,8 +25,11 @@ def _playwright_available() -> bool:
     node = shutil.which("node")
     if not node:
         return False
+    env = dict(os.environ)
+    if Path("/paperclip/.hermes/ui-tools/node_modules").exists():
+        env["NODE_PATH"] = "/paperclip/.hermes/ui-tools/node_modules"
     probe = "try{require('playwright')}catch(e){require('playwright-core')}"
-    return subprocess.run([node, "-e", probe], cwd=ROOT, capture_output=True).returncode == 0
+    return subprocess.run([node, "-e", probe], cwd=ROOT, env=env, capture_output=True).returncode == 0
 
 
 pytestmark = pytest.mark.skipif(not _playwright_available(), reason="node + playwright not available")
@@ -60,8 +63,16 @@ def test_spa_xss_and_accessibility(db_path: Path):
                 time.sleep(0.1)
         else:
             pytest.fail("uvicorn did not start")
+        node_path = os.environ.get("NODE_PATH") or "/paperclip/.hermes/ui-tools/node_modules"
+        chrom_path = os.environ.get("CHROMIUM_PATH") or "/opt/hermes/tools/chromium-1208/chrome-linux64/chrome"
+        axe_path = os.environ.get("AXE_CORE_PATH") or "/paperclip/.hermes/ui-tools/node_modules/axe-core/axe.min.js"
         res = subprocess.run(
-            ["node", str(SCRIPT)], cwd=ROOT, env={**os.environ, "BASE_URL": base}, capture_output=True, text=True, timeout=300
+            ["node", str(SCRIPT)],
+            cwd=ROOT,
+            env={**os.environ, "BASE_URL": base, "NODE_PATH": node_path, "CHROMIUM_PATH": chrom_path, "AXE_CORE_PATH": axe_path},
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         assert res.returncode == 0, res.stdout[-6000:] + res.stderr[-3000:]
     finally:

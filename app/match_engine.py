@@ -91,9 +91,247 @@ def nine_ranks(caps18: list[int], nine: str) -> list[int]:
 
 
 def strokes_per_hole(hcp: float, ranks: list[int], num_holes: int) -> list[int]:
-    h = max(0, int(round(float(hcp or 0))))
-    base, rem = divmod(h, num_holes)
-    return [base + (1 if r <= rem else 0) for r in ranks]
+    """Calculate handicap strokes received on each hole.
+    Supports plus-handicaps (negative numeric values, e.g. -2.0 for +2), where golfers
+    give strokes back to the course on the easiest holes (highest rank numbers)."""
+    h = int(round(float(hcp or 0)))
+    if h == 0:
+        return [0] * len(ranks)
+    if h > 0:
+        base, rem = divmod(h, num_holes)
+        return [base + (1 if r <= rem else 0) for r in ranks]
+    else:
+        abs_h = abs(h)
+        base = -(abs_h // num_holes)
+        rem = abs_h % num_holes
+        return [base - (1 if r >= (num_holes - rem + 1) else 0) for r in ranks]
+
+
+def compute_ecgc_pt(
+    net_score: int | float,
+    *,
+    net_bonus_below_max: int = 35,
+    net_bonus_pts: float = 1.0,
+    net_even_min: int = 36,
+    net_even_max: int = 36,
+    net_even_pts: float = 0.0,
+    net_penalty_above_min: int = 37,
+    net_penalty_pts: float = -1.0,
+) -> float:
+    """Compute per-player Net vs Par bonus/penalty points (PT).
+    Shooting under net par (<= 35, or < 36) awards bonus points (+1.0).
+    Shooting even net par (== 36) awards even points (0.0).
+    Shooting over net par (>= 37, or > 36) incurs penalty points (-1.0).
+    """
+    if net_score <= net_bonus_below_max:
+        return float(net_bonus_pts)
+    elif net_even_min <= net_score <= net_even_max:
+        return float(net_even_pts)
+    elif net_score >= net_penalty_above_min:
+        return float(net_penalty_pts)
+    return 0.0
+
+
+def compute_next_handicap(current_hcp: float, pt: float) -> float:
+    """ECGC weekly handicap progression rule: HCP_next = HCP_prev - PT."""
+    return round(float(current_hcp or 0) - float(pt or 0), 1)
+
+
+def score_ecgc_2person_match(
+    team_a: dict[str, Any],
+    team_b: dict[str, Any],
+    hole_ranks: list[int] | None = None,
+    pars: list[int] | None = None,
+    rules: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Score a 9-hole 2-person team match under ECGC rules.
+
+    Each team has two players (player1, player2).
+    On each of the 9 holes (1.0 pt win, 0.5 pt tie, 9.0 pts total across 9 holes),
+    compare Team A combined gross vs Team B combined gross with differential handicap
+    strokes (diff = (HCP_A1 + HCP_A2) - (HCP_B1 + HCP_B2)) allocated by ECGC hole handicap rank.
+
+    At the end of the 9-hole matchup, award per-player extra team points (PT: +1, 0, or -1)
+    based on whether each player shot below, equal to, or above their net handicap score.
+    Total weekly team points = 9-hole match points + Player1 PT + Player2 PT.
+    """
+    ranks = hole_ranks or [7, 1, 5, 4, 6, 3, 2, 8, 9]
+    hole_pars = pars or [4, 4, 4, 3, 5, 5, 4, 3, 4]
+    r = rules or {}
+
+    win_pts = float(r.get("points_per_hole_win", 1.0))
+    tie_pts = float(r.get("points_per_hole_tie", 0.5))
+    bonus_below = int(r.get("net_bonus_below_max", 35))
+    bonus_pts = float(r.get("net_bonus_pts", 1.0))
+    even_min = int(r.get("net_even_min", 36))
+    even_max = int(r.get("net_even_max", 36))
+    even_pts = float(r.get("net_even_pts", 0.0))
+    pen_above = int(r.get("net_penalty_above_min", 37))
+    pen_pts = float(r.get("net_penalty_pts", -1.0))
+
+    def eval_player(p: dict[str, Any] | None, default_name: str) -> dict[str, Any]:
+        p = p or {}
+        name = p.get("player_name") or p.get("name") or default_name
+        hcp_val = p.get("handicap")
+        hcp = float(hcp_val if hcp_val is not None else 0.0)
+        is_sub = bool(p.get("is_sub", False))
+        unplayed = bool(p.get("unplayed", False))
+        raw_scores = p.get("gross_scores") or p.get("holes") or []
+        scores = [int(s) for s in raw_scores]
+        if len(scores) < 9:
+            scores = scores + [hole_pars[i] for i in range(len(scores), 9)]
+        scores = scores[:9]
+        gross_total = sum(scores)
+        if unplayed or gross_total < 0:
+            net_total = -36
+            pt = 0.0
+            hcp_next = hcp
+        else:
+            hcp_round = round(hcp)
+            net_total = gross_total - hcp_round
+            pt = compute_ecgc_pt(
+                net_total,
+                net_bonus_below_max=bonus_below,
+                net_bonus_pts=bonus_pts,
+                net_even_min=even_min,
+                net_even_max=even_max,
+                net_even_pts=even_pts,
+                net_penalty_above_min=pen_above,
+                net_penalty_pts=pen_pts,
+            )
+            hcp_next = compute_next_handicap(hcp, pt)
+
+        return {
+            "player_id": p.get("player_id") or p.get("id"),
+            "player_name": name,
+            "handicap": hcp,
+            "gross_scores": scores,
+            "gross_total": gross_total,
+            "net_total": net_total,
+            "pt": pt,
+            "hcp_next": hcp_next,
+            "is_sub": is_sub,
+            "unplayed": unplayed,
+        }
+
+    p1_a = eval_player(team_a.get("player1"), "Team A Player 1")
+    p2_a = eval_player(team_a.get("player2"), "Team A Player 2")
+    p1_b = eval_player(team_b.get("player1"), "Team B Player 1")
+    p2_b = eval_player(team_b.get("player2"), "Team B Player 2")
+
+    team_a_hcp = p1_a["handicap"] + p2_a["handicap"]
+    team_b_hcp = p1_b["handicap"] + p2_b["handicap"]
+    diff = round(team_a_hcp - team_b_hcp)
+
+    if diff > 0:
+        strokes_a = strokes_per_hole(diff, ranks, 9)
+        strokes_b = [0] * 9
+    elif diff < 0:
+        strokes_b = strokes_per_hole(abs(diff), ranks, 9)
+        strokes_a = [0] * 9
+    else:
+        strokes_a = [0] * 9
+        strokes_b = [0] * 9
+
+    holes_breakdown = []
+    team_a_hole_pts = 0.0
+    team_b_hole_pts = 0.0
+
+    for i in range(9):
+        h_num = i + 1
+        par = hole_pars[i]
+        rank = ranks[i]
+
+        g1_a = p1_a["gross_scores"][i]
+        g2_a = p2_a["gross_scores"][i]
+        gross_a = g1_a + g2_a
+        strk_a = strokes_a[i]
+        net_a = gross_a - strk_a
+
+        g1_b = p1_b["gross_scores"][i]
+        g2_b = p2_b["gross_scores"][i]
+        gross_b = g1_b + g2_b
+        strk_b = strokes_b[i]
+        net_b = gross_b - strk_b
+
+        if net_a < net_b:
+            pts_a = win_pts
+            pts_b = 0.0
+            winner = "team_a"
+        elif net_b < net_a:
+            pts_b = win_pts
+            pts_a = 0.0
+            winner = "team_b"
+        else:
+            pts_a = tie_pts
+            pts_b = tie_pts
+            winner = "tie"
+
+        team_a_hole_pts += pts_a
+        team_b_hole_pts += pts_b
+
+        holes_breakdown.append({
+            "hole_number": h_num,
+            "par": par,
+            "hole_rank": rank,
+            "team_a": {
+                "player1_gross": g1_a,
+                "player2_gross": g2_a,
+                "team_gross": gross_a,
+                "strokes_received": strk_a,
+                "team_net": net_a,
+                "hole_pts": pts_a,
+            },
+            "team_b": {
+                "player1_gross": g1_b,
+                "player2_gross": g2_b,
+                "team_gross": gross_b,
+                "strokes_received": strk_b,
+                "team_net": net_b,
+                "hole_pts": pts_b,
+            },
+            "winner": winner,
+        })
+
+    team_a_total_pts = round(team_a_hole_pts + p1_a["pt"] + p2_a["pt"], 1)
+    team_b_total_pts = round(team_b_hole_pts + p1_b["pt"] + p2_b["pt"], 1)
+
+    if team_a_total_pts > team_b_total_pts:
+        match_winner = "team_a"
+    elif team_b_total_pts > team_a_total_pts:
+        match_winner = "team_b"
+    else:
+        match_winner = "tie"
+
+    return {
+        "status": "scored",
+        "format": "ecgc_2person_match",
+        "team_a": {
+            "team_id": team_a.get("team_id"),
+            "team_name": team_a.get("team_name", "Team A"),
+            "team_hcp": team_a_hcp,
+            "diff_strokes": diff if diff > 0 else 0,
+            "player1": p1_a,
+            "player2": p2_a,
+            "hole_points": team_a_hole_pts,
+            "pt_bonus_total": round(p1_a["pt"] + p2_a["pt"], 1),
+            "total_points": team_a_total_pts,
+        },
+        "team_b": {
+            "team_id": team_b.get("team_id"),
+            "team_name": team_b.get("team_name", "Team B"),
+            "team_hcp": team_b_hcp,
+            "diff_strokes": abs(diff) if diff < 0 else 0,
+            "player1": p1_b,
+            "player2": p2_b,
+            "hole_points": team_b_hole_pts,
+            "pt_bonus_total": round(p1_b["pt"] + p2_b["pt"], 1),
+            "total_points": team_b_total_pts,
+        },
+        "holes": holes_breakdown,
+        "match_winner": match_winner,
+        "summary": f"{team_a.get('team_name', 'Team A')} ({team_a_total_pts}) vs {team_b.get('team_name', 'Team B')} ({team_b_total_pts})",
+    }
 
 
 def stableford_points(net_or_gross: list[int], pars: list[int], matrix: dict[str, int]) -> int:

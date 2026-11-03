@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator, ValidationInfo
 
-from . import golf_engine, mdb_migrator
+from . import ecgc_importer, golf_engine, match_engine, mdb_migrator
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB = ROOT / "data" / "gls9.db"
@@ -124,7 +124,7 @@ class ScheduleGenReq(BaseModel):
 
 
 _CSP = (
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
     "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 )
 
@@ -136,6 +136,17 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
 
     if not db_file.exists() and mdb_file.exists():
         mdb_migrator.migrate_mdb_to_sqlite(mdb_file, db_file, sched_dir)
+
+    # Auto-seed ECGC data if db_file exists and ECGC tables/seasons not yet populated
+    if db_file.exists():
+        try:
+            with sqlite3.connect(str(db_file), timeout=10) as _c_init:
+                has_ecgc = golf_engine.table_exists(_c_init, "ecgc_seasons") and \
+                    _c_init.execute('SELECT COUNT(*) FROM ecgc_seasons').fetchone()[0] >= 18
+                if not has_ecgc and ecgc_importer.DEFAULT_ECGC_SQLITE.exists():
+                    ecgc_importer.import_ecgc_data(_c_init)
+        except Exception:
+            pass
 
     app = FastAPI(title="Golf League Secretary — Modern Web Edition (GLS9 Clean-Room)", version="2.0.0")
     app.state.db_file = db_file
@@ -199,6 +210,10 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
     async def _db_error(_: Request, exc: sqlite3.Error) -> JSONResponse:
         # Never leak SQL / schema details to the client.
         return JSONResponse(status_code=500, content={"detail": "Database error"})
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> Response:
+        return Response(status_code=204)
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
@@ -403,6 +418,384 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
         finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)
+
+    @app.post("/api/import/ecgc")
+    def import_ecgc() -> dict[str, Any]:
+        with get_conn() as conn:
+            try:
+                res = ecgc_importer.import_ecgc_data(conn)
+                return {"status": "ok", **res}
+            except FileNotFoundError as e:
+                raise HTTPException(status_code=404, detail=str(e))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"ECGC import failed: {str(e)}")
+
+    @app.get("/api/ecgc/seasons")
+    def list_ecgc_seasons() -> dict[str, Any]:
+        with get_conn() as conn:
+            if not golf_engine.table_exists(conn, "ecgc_seasons"):
+                return {"count": 0, "seasons": []}
+            rows = golf_engine.rows_as_dicts(conn.execute('SELECT * FROM ecgc_seasons ORDER BY season_year DESC, league_slug ASC'))
+            return {"count": len(rows), "seasons": rows}
+
+    @app.get("/api/ecgc/standings")
+    def get_ecgc_standings(season_year: int | None = None, league_slug: str | None = None, league_id: int | None = None) -> dict[str, Any]:
+        with get_conn() as conn:
+            if not golf_engine.table_exists(conn, "ecgc_standings"):
+                return {"first_half": [], "second_half": [], "final": [], "all_rows": []}
+            query = "SELECT * FROM ecgc_standings WHERE 1=1"
+            params: list[Any] = []
+            if league_id:
+                query += " AND gls_league_id = ?"
+                params.append(league_id)
+            if season_year:
+                query += " AND season_year = ?"
+                params.append(season_year)
+            if league_slug:
+                query += " AND league_slug = ?"
+                params.append(league_slug)
+            query += " ORDER BY rank ASC"
+            rows = golf_engine.rows_as_dicts(conn.execute(query, params))
+            first = [r for r in rows if r.get("split_name") == "first_half"]
+            second = [r for r in rows if r.get("split_name") == "second_half"]
+            final = [r for r in rows if r.get("split_name") == "final"]
+            return {
+                "season_year": season_year,
+                "league_slug": league_slug,
+                "first_half": first,
+                "second_half": second,
+                "final": final,
+                "all_rows": rows,
+            }
+
+    @app.get("/api/ecgc/brackets")
+    def list_ecgc_brackets(season_year: int | None = None, league_slug: str | None = None) -> dict[str, Any]:
+        with get_conn() as conn:
+            if not golf_engine.table_exists(conn, "ecgc_brackets"):
+                return {"count": 0, "brackets": []}
+            query = "SELECT * FROM ecgc_brackets WHERE 1=1"
+            params: list[Any] = []
+            if season_year:
+                query += " AND season_year = ?"
+                params.append(season_year)
+            if league_slug:
+                query += " AND league_slug = ?"
+                params.append(league_slug)
+            query += " ORDER BY season_year DESC, league_slug ASC, id ASC"
+            rows = golf_engine.rows_as_dicts(conn.execute(query, params))
+            return {"count": len(rows), "brackets": rows}
+
+    @app.get("/api/ecgc/players")
+    def list_ecgc_players() -> dict[str, Any]:
+        with get_conn() as conn:
+            if not golf_engine.table_exists(conn, "ecgc_players"):
+                return {"count": 0, "players": []}
+            query = """
+                SELECT 
+                    p.id, p.slug, p.display_name, p.first_name, p.last_name, p.primary_division, p.active_flag,
+                    COUNT(r.id) as career_rounds,
+                    ROUND(AVG(CASE WHEN r.gross_total > 20 THEN r.gross_total END), 1) as avg_gross,
+                    ROUND(AVG(CASE WHEN r.net_total > 20 THEN r.net_total END), 1) as avg_net,
+                    MIN(CASE WHEN r.gross_total > 20 THEN r.gross_total END) as best_gross,
+                    MIN(CASE WHEN r.net_total > 20 THEN r.net_total END) as best_net,
+                    ROUND(SUM(COALESCE(r.points_adjustment, 0.0)), 1) as total_pt_points,
+                    COUNT(DISTINCT r.season_year) as seasons_played
+                FROM ecgc_players p
+                LEFT JOIN ecgc_rounds r ON p.id = r.player_id
+                GROUP BY p.id
+                ORDER BY p.last_name ASC, p.first_name ASC
+            """
+            rows = golf_engine.rows_as_dicts(conn.execute(query))
+            return {"count": len(rows), "players": rows}
+
+    @app.get("/api/ecgc/players/{player_id}")
+    def get_ecgc_player_profile(player_id: int) -> dict[str, Any]:
+        with get_conn() as conn:
+            if not golf_engine.table_exists(conn, "ecgc_players"):
+                raise HTTPException(status_code=404, detail="ECGC players table not found")
+            p_rows = golf_engine.rows_as_dicts(conn.execute("SELECT * FROM ecgc_players WHERE id=?", (player_id,)))
+            if not p_rows:
+                raise HTTPException(status_code=404, detail=f"Player {player_id} not found")
+            player = p_rows[0]
+
+            season_summary = golf_engine.rows_as_dicts(conn.execute("""
+                SELECT 
+                    r.season_year, r.league_slug, r.team_name,
+                    COUNT(r.id) as rounds_played,
+                    ROUND(AVG(CASE WHEN r.gross_total > 20 THEN r.gross_total END), 1) as avg_gross,
+                    ROUND(AVG(CASE WHEN r.net_total > 20 THEN r.net_total END), 1) as avg_net,
+                    MIN(CASE WHEN r.gross_total > 20 THEN r.gross_total END) as best_gross,
+                    ROUND(SUM(COALESCE(r.points_adjustment, 0.0)), 1) as season_pt_total,
+                    ROUND(AVG(r.handicap), 1) as avg_handicap
+                FROM ecgc_rounds r
+                WHERE r.player_id = ?
+                GROUP BY r.season_year, r.league_slug
+                ORDER BY r.season_year DESC
+            """, (player_id,)))
+
+            rounds = golf_engine.rows_as_dicts(conn.execute("""
+                SELECT 
+                    r.id as round_id, r.event_id, r.match_id, r.season_year, r.league_slug,
+                    r.team_name, r.handicap, r.gross_total, r.net_total, r.over_under, r.points_adjustment,
+                    e.event_date, e.event_title, e.week_number, e.stage
+                FROM ecgc_rounds r
+                LEFT JOIN ecgc_events e ON r.event_id = e.id
+                WHERE r.player_id = ?
+                ORDER BY r.season_year DESC, e.event_date DESC, r.id DESC
+                LIMIT 50
+            """, (player_id,)))
+
+            hcp_progression = [
+                {"date": r.get("event_date") or f"{r.get('season_year')}-W{i+1}", "hcp": r.get("handicap"), "gross": r.get("gross_total"), "pt": r.get("points_adjustment")}
+                for i, r in enumerate(reversed(rounds)) if r.get("handicap") is not None
+            ]
+
+            return {
+                "player": player,
+                "career_seasons": len(season_summary),
+                "season_summary": season_summary,
+                "rounds": rounds,
+                "handicap_progression": hcp_progression,
+            }
+
+    @app.get("/api/ecgc/matches")
+    def list_ecgc_matches(
+        season_year: int | None = None,
+        league_slug: str | None = None,
+        week_number: int | None = None,
+        league_id: int | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        with get_conn() as conn:
+            if not golf_engine.table_exists(conn, "ecgc_matches"):
+                return {"count": 0, "matches": []}
+            query = """
+                SELECT m.*, e.week_number, e.event_date, e.event_title
+                FROM ecgc_matches m
+                LEFT JOIN ecgc_events e ON m.event_id = e.id
+                WHERE 1=1
+            """
+            params: list[Any] = []
+            if league_id:
+                query += " AND m.gls_league_id = ?"
+                params.append(league_id)
+            if season_year:
+                query += " AND m.season_year = ?"
+                params.append(season_year)
+            if league_slug:
+                query += " AND m.league_slug = ?"
+                params.append(league_slug)
+            if week_number:
+                query += " AND e.week_number = ?"
+                params.append(week_number)
+            query += " ORDER BY m.season_year DESC, e.week_number ASC, m.match_number ASC LIMIT ?"
+            params.append(limit)
+            rows = golf_engine.rows_as_dicts(conn.execute(query, params))
+            return {"count": len(rows), "matches": rows}
+
+    @app.get("/api/ecgc/matches/{match_id}/breakdown")
+    def get_ecgc_match_breakdown(match_id: int) -> dict[str, Any]:
+        with get_conn() as conn:
+            if not golf_engine.table_exists(conn, "ecgc_matches"):
+                raise HTTPException(status_code=404, detail="ECGC matches table not found")
+            m_rows = golf_engine.rows_as_dicts(conn.execute("SELECT * FROM ecgc_matches WHERE id=?", (match_id,)))
+            if not m_rows:
+                raise HTTPException(status_code=404, detail=f"Match {match_id} not found")
+            match = m_rows[0]
+
+            rounds = golf_engine.rows_as_dicts(conn.execute("""
+                SELECT * FROM ecgc_rounds WHERE match_id = ? ORDER BY team_id ASC, id ASC
+            """, (match_id,)))
+
+            round_ids = [r["id"] for r in rounds]
+            hole_scores: dict[int, list[dict[str, Any]]] = {}
+            if round_ids:
+                placeholders = ",".join("?" for _ in round_ids)
+                h_rows = golf_engine.rows_as_dicts(conn.execute(f"""
+                    SELECT * FROM ecgc_hole_scores WHERE round_id IN ({placeholders}) ORDER BY hole_number ASC
+                """, round_ids))
+                for h in h_rows:
+                    hole_scores.setdefault(h["round_id"], []).append(h)
+
+            for r in rounds:
+                r["hole_scores"] = hole_scores.get(r["id"], [])
+
+            team_a_rounds = [r for r in rounds if r.get("team_id") == match.get("team_a_id")]
+            team_b_rounds = [r for r in rounds if r.get("team_id") == match.get("team_b_id")]
+
+            pars = [4, 4, 4, 3, 5, 5, 4, 3, 4]
+            ranks = [7, 1, 5, 4, 6, 3, 2, 8, 9]
+
+            hcp_a = sum(float(r.get("handicap") or 0) for r in team_a_rounds)
+            hcp_b = sum(float(r.get("handicap") or 0) for r in team_b_rounds)
+            diff = round(hcp_a - hcp_b)
+            strokes_a = match_engine.strokes_per_hole(diff, ranks, 9) if diff > 0 else [0]*9
+            strokes_b = match_engine.strokes_per_hole(abs(diff), ranks, 9) if diff < 0 else [0]*9
+
+            holes_data = []
+            team_a_hole_pts = 0.0
+            team_b_hole_pts = 0.0
+
+            for i in range(9):
+                h_num = i + 1
+                g_a = sum(
+                    r["hole_scores"][i]["gross_score"]
+                    for r in team_a_rounds
+                    if len(r.get("hole_scores", [])) > i
+                ) if team_a_rounds else 0
+                g_b = sum(
+                    r["hole_scores"][i]["gross_score"]
+                    for r in team_b_rounds
+                    if len(r.get("hole_scores", [])) > i
+                ) if team_b_rounds else 0
+
+                net_a = g_a - strokes_a[i]
+                net_b = g_b - strokes_b[i]
+
+                if net_a < net_b:
+                    pts_a, pts_b, w = 1.0, 0.0, "team_a"
+                elif net_b < net_a:
+                    pts_a, pts_b, w = 0.0, 1.0, "team_b"
+                else:
+                    pts_a, pts_b, w = 0.5, 0.5, "tie"
+
+                team_a_hole_pts += pts_a
+                team_b_hole_pts += pts_b
+
+                holes_data.append({
+                    "hole_number": h_num,
+                    "par": pars[i],
+                    "hole_rank": ranks[i],
+                    "team_a_gross": g_a,
+                    "team_a_strokes": strokes_a[i],
+                    "team_a_net": net_a,
+                    "team_a_pts": pts_a,
+                    "team_b_gross": g_b,
+                    "team_b_strokes": strokes_b[i],
+                    "team_b_net": net_b,
+                    "team_b_pts": pts_b,
+                    "winner": w,
+                })
+
+            team_a_pt = sum(float(r.get("points_adjustment") or 0) for r in team_a_rounds)
+            team_b_pt = sum(float(r.get("points_adjustment") or 0) for r in team_b_rounds)
+
+            return {
+                "match": match,
+                "team_a": {
+                    "id": match.get("team_a_id"),
+                    "name": match.get("team_a_name"),
+                    "rounds": team_a_rounds,
+                    "team_hcp": round(hcp_a, 1),
+                    "hole_points": team_a_hole_pts,
+                    "pt_bonus_total": round(team_a_pt, 1),
+                    "total_points": round(team_a_hole_pts + team_a_pt, 1),
+                },
+                "team_b": {
+                    "id": match.get("team_b_id"),
+                    "name": match.get("team_b_name"),
+                    "rounds": team_b_rounds,
+                    "team_hcp": round(hcp_b, 1),
+                    "hole_points": team_b_hole_pts,
+                    "pt_bonus_total": round(team_b_pt, 1),
+                    "total_points": round(team_b_hole_pts + team_b_pt, 1),
+                },
+                "holes": holes_data,
+            }
+
+    @app.get("/api/rules/config/{lid}")
+    def get_rules_config(lid: LeagueId) -> dict[str, Any]:
+        with get_conn() as conn:
+            if not golf_engine.table_exists(conn, "league_rules_config"):
+                raise HTTPException(status_code=404, detail="Rules config table not found")
+            rows = golf_engine.rows_as_dicts(conn.execute("SELECT * FROM league_rules_config WHERE league_id=?", (lid,)))
+            if not rows:
+                return {
+                    "league_id": lid,
+                    "rule_type": "ecgc_2person_match",
+                    "holes_count": 9,
+                    "points_per_hole_win": 1.0,
+                    "points_per_hole_tie": 0.5,
+                    "match_hole_points_total": 9.0,
+                    "net_bonus_enabled": 1,
+                    "net_bonus_below_max": 35,
+                    "net_bonus_pts": 1.0,
+                    "net_even_min": 36,
+                    "net_even_max": 36,
+                    "net_even_pts": 0.0,
+                    "net_penalty_above_min": 37,
+                    "net_penalty_pts": -1.0,
+                    "handicap_progression_mode": "weekly_pt",
+                    "plus_handicaps_enabled": 1,
+                    "unplayed_round_score": -36,
+                }
+            return rows[0]
+
+    @app.post("/api/rules/config/{lid}")
+    def update_rules_config(lid: LeagueId, req: dict[str, Any]) -> dict[str, Any]:
+        with get_conn() as conn:
+            if not golf_engine.table_exists(conn, "league_rules_config"):
+                raise HTTPException(status_code=404, detail="Rules config table not found")
+            with conn:
+                conn.execute("""
+                    INSERT INTO league_rules_config (
+                        league_id, rule_type, holes_count, points_per_hole_win, points_per_hole_tie,
+                        match_hole_points_total, net_bonus_enabled, net_bonus_below_max, net_bonus_pts,
+                        net_even_min, net_even_max, net_even_pts, net_penalty_above_min, net_penalty_pts,
+                        handicap_progression_mode, plus_handicaps_enabled, unplayed_round_score
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(league_id) DO UPDATE SET
+                        rule_type = excluded.rule_type,
+                        holes_count = excluded.holes_count,
+                        points_per_hole_win = excluded.points_per_hole_win,
+                        points_per_hole_tie = excluded.points_per_hole_tie,
+                        match_hole_points_total = excluded.match_hole_points_total,
+                        net_bonus_enabled = excluded.net_bonus_enabled,
+                        net_bonus_below_max = excluded.net_bonus_below_max,
+                        net_bonus_pts = excluded.net_bonus_pts,
+                        net_even_min = excluded.net_even_min,
+                        net_even_max = excluded.net_even_max,
+                        net_even_pts = excluded.net_even_pts,
+                        net_penalty_above_min = excluded.net_penalty_above_min,
+                        net_penalty_pts = excluded.net_penalty_pts,
+                        handicap_progression_mode = excluded.handicap_progression_mode,
+                        plus_handicaps_enabled = excluded.plus_handicaps_enabled,
+                        unplayed_round_score = excluded.unplayed_round_score
+                """, (
+                    lid,
+                    req.get("rule_type", "ecgc_2person_match"),
+                    int(req.get("holes_count", 9)),
+                    float(req.get("points_per_hole_win", 1.0)),
+                    float(req.get("points_per_hole_tie", 0.5)),
+                    float(req.get("match_hole_points_total", 9.0)),
+                    int(req.get("net_bonus_enabled", 1)),
+                    int(req.get("net_bonus_below_max", 35)),
+                    float(req.get("net_bonus_pts", 1.0)),
+                    int(req.get("net_even_min", 36)),
+                    int(req.get("net_even_max", 36)),
+                    float(req.get("net_even_pts", 0.0)),
+                    int(req.get("net_penalty_above_min", 37)),
+                    float(req.get("net_penalty_pts", -1.0)),
+                    req.get("handicap_progression_mode", "weekly_pt"),
+                    int(req.get("plus_handicaps_enabled", 1)),
+                    int(req.get("unplayed_round_score", -36)),
+                ))
+            return get_rules_config(lid)
+
+    @app.post("/api/rules/simulate")
+    def simulate_ecgc_match(req: dict[str, Any]) -> dict[str, Any]:
+        team_a = req.get("team_a", {})
+        team_b = req.get("team_b", {})
+        rules = req.get("rules", {})
+        ranks = req.get("hole_ranks") or [7, 1, 5, 4, 6, 3, 2, 8, 9]
+        pars = req.get("pars") or [4, 4, 4, 3, 5, 5, 4, 3, 4]
+        return match_engine.score_ecgc_2person_match(
+            team_a=team_a,
+            team_b=team_b,
+            hole_ranks=ranks,
+            pars=pars,
+            rules=rules,
+        )
 
     @app.get("/api/export/sqlite")
     def export_sqlite() -> FileResponse:

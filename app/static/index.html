@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Golf League Secretary — Modern Web Edition (GLS9 Clean-Room)</title>
   <meta name="description" content="Golf League Secretary: standings, scorecards, match play, schedules and courses." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⛳</text></svg>" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
@@ -50,23 +51,69 @@
     </div>
   </header>
 
-  <div class="tabs-bar">
+  <nav class="tabs-bar" aria-label="GLS9 Workspaces Navigation">
     <div role="tablist" aria-label="GLS9 Workspaces" class="tabs-list">
-    <button class="tab-btn active" id="tabbtn-standings" type="button" data-tab="standings" role="tab" aria-selected="true" aria-controls="tab-standings" tabindex="0">🏆 1. Standings &amp; Leaderboards</button>
-    <button class="tab-btn" id="tabbtn-scorecard" type="button" data-tab="scorecard" role="tab" aria-selected="false" aria-controls="tab-scorecard" tabindex="-1">📝 2. Weekly Scorecard &amp; Skins</button>
-    <button class="tab-btn" id="tabbtn-roster" type="button" data-tab="roster" role="tab" aria-selected="false" aria-controls="tab-roster" tabindex="-1">👥 3. Roster, Subs &amp; Dues</button>
-    <button class="tab-btn" id="tabbtn-schedule" type="button" data-tab="schedule" role="tab" aria-selected="false" aria-controls="tab-schedule" tabindex="-1">📅 4. Schedule &amp; Round-Robin</button>
-    <button class="tab-btn" id="tabbtn-courses" type="button" data-tab="courses" role="tab" aria-selected="false" aria-controls="tab-courses" tabindex="-1">⛳ 5. Golf Courses (18/36-Hole)</button>
-    <button class="tab-btn" id="tabbtn-explorer" type="button" data-tab="explorer" role="tab" aria-selected="false" aria-controls="tab-explorer" tabindex="-1">🗄️ 6. Raw .mdb Explorer (60 Tables)</button>
+    <button class="tab-btn active" id="tabbtn-standings" type="button" data-tab="standings" role="tab" aria-selected="true" aria-controls="tab-standings" tabindex="0">🏆 1. Command Overview &amp; Standings</button>
+    <button class="tab-btn" id="tabbtn-scorecard" type="button" data-tab="scorecard" role="tab" aria-selected="false" aria-controls="tab-scorecard" tabindex="-1">📝 2. Scorecard &amp; Match Entry</button>
+    <button class="tab-btn" id="tabbtn-roster" type="button" data-tab="roster" role="tab" aria-selected="false" aria-controls="tab-roster" tabindex="-1">👥 3. Players &amp; Teams</button>
+    <button class="tab-btn" id="tabbtn-schedule" type="button" data-tab="schedule" role="tab" aria-selected="false" aria-controls="tab-schedule" tabindex="-1">📅 4. Schedule &amp; Pairings</button>
+    <button class="tab-btn" id="tabbtn-courses" type="button" data-tab="courses" role="tab" aria-selected="false" aria-controls="tab-courses" tabindex="-1">⛳ 5. Standings &amp; Analytics</button>
+    <button class="tab-btn" id="tabbtn-explorer" type="button" data-tab="explorer" role="tab" aria-selected="false" aria-controls="tab-explorer" tabindex="-1">⚙️ 6. Courses, Rules &amp; Data Import</button>
     </div>
-  </div>
+  </nav>
 
   <main id="main" class="container" tabindex="-1">
+    <!-- SEASON & DIVISION FILTER BAR -->
+    <section class="filter-bar" aria-label="Season and Division Filter">
+      <div class="filter-group">
+        <label for="seasonSelect" class="filter-label">Season:</label>
+        <select id="seasonSelect">
+          <option value="all">All Seasons (2018–2026)</option>
+          <option value="2026" selected>2026 Season (Current)</option>
+          <option value="2025">2025 Season</option>
+          <option value="2024">2024 Season</option>
+          <option value="2023">2023 Season</option>
+          <option value="2022">2022 Season</option>
+          <option value="2021">2021 Season</option>
+          <option value="2020">2020 Season</option>
+          <option value="2019">2019 Season</option>
+          <option value="2018">2018 Season</option>
+          <option value="legacy">Legacy Samples</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="divisionSelect" class="filter-label">Division:</label>
+        <select id="divisionSelect">
+          <option value="all">All Divisions</option>
+          <option value="mens" selected>Men's Twilight League</option>
+          <option value="womens">Women's League</option>
+          <option value="career">All Seasons Career</option>
+          <option value="legacy">Legacy Samples</option>
+        </select>
+      </div>
+      <div class="filter-group filter-actions">
+        <button id="quick2026Btn" type="button" class="btn small primary">⚡ 2026 Men's Twilight</button>
+        <button id="quickEcgcSyncBtn" type="button" class="btn small gold" title="Re-sync all 18 historical seasons from ecgc.sqlite">🔄 Re-Sync ECGC Data</button>
+      </div>
+    </section>
+
     <section id="kpiStrip" class="kpi-strip" aria-label="League Summary KPIs"></section>
 
     <!-- TAB 1: STANDINGS & LEADERBOARDS -->
     <section id="tab-standings" class="tab-pane" role="tabpanel" aria-labelledby="tabbtn-standings" tabindex="0">
-      <div class="grid-2">
+      <!-- Split-Season Standings Subtabs -->
+      <div class="split-standings-bar">
+        <div class="subtabs-list" role="group" aria-label="Split-Season Standings">
+          <button class="subtab-btn active" id="subtab-final" type="button" data-split="final">🏆 Final Combined Standings</button>
+          <button class="subtab-btn" id="subtab-first" type="button" data-split="first_half">🥇 First Half (Weeks 1–8)</button>
+          <button class="subtab-btn" id="subtab-second" type="button" data-split="second_half">🥈 Second Half (Weeks 9–16)</button>
+          <button class="subtab-btn" id="subtab-playoffs" type="button" data-split="playoffs">🏅 Playoff Brackets (Rd 1–4)</button>
+        </div>
+      </div>
+      <div id="splitStandingsContainer" class="hidden"></div>
+      <div id="playoffsContainer" class="hidden"></div>
+
+      <div id="standardStandingsGrid" class="grid-2">
         <div class="panel">
           <div class="panel-header">
             <h2>Team Standings (`*Teams`)</h2>
@@ -308,12 +355,200 @@
       <div id="coursesContainer"></div>
     </section>
 
-    <!-- TAB 6: RAW .MDB EXPLORER -->
+    <!-- TAB 6: RULES CONFIGURATOR, SCORING SIMULATOR & DATA EXPLORER -->
     <section id="tab-explorer" class="tab-pane hidden" role="tabpanel" aria-labelledby="tabbtn-explorer" tabindex="0">
+      <!-- 1. ECGC RULES CONFIGURATOR & IMPORTER -->
       <div class="panel">
         <div class="panel-header">
           <div class="form-row">
-            <h2>Microsoft Jet `.mdb` Table Explorer (`frmDbViewer` Replacement — 60 Migrated Tables)</h2>
+            <h2>⚙️ ECGC League Rules Configurator &amp; Data Synchronizer</h2>
+            <span id="rulesConfigBadge" class="badge">Active Rules</span>
+          </div>
+          <div class="form-row">
+            <button id="saveRulesConfigBtn" type="button" class="primary">💾 Save Rules Configuration</button>
+            <button id="runEcgcImportBtn" type="button" class="gold">🔄 Run Full ECGC Importer</button>
+          </div>
+        </div>
+        <form id="rulesConfigForm" class="rules-grid">
+          <div>
+            <label for="cfgRuleType">Rules Formula Type:</label>
+            <input type="text" id="cfgRuleType" value="ecgc_2person_match" readonly />
+          </div>
+          <div>
+            <label for="cfgHolesCount">Match Holes Count:</label>
+            <input type="number" id="cfgHolesCount" min="9" max="18" value="9" />
+          </div>
+          <div>
+            <label for="cfgWinPts">Points Per Hole Win:</label>
+            <input type="number" step="0.5" id="cfgWinPts" value="1.0" />
+          </div>
+          <div>
+            <label for="cfgTiePts">Points Per Hole Tie / Halved:</label>
+            <input type="number" step="0.5" id="cfgTiePts" value="0.5" />
+          </div>
+          <div>
+            <label for="cfgBonusBelow">Net Bonus Threshold (&le;):</label>
+            <input type="number" id="cfgBonusBelow" value="35" title="Net scores at or below this value earn bonus points" />
+          </div>
+          <div>
+            <label for="cfgBonusPts">Net Bonus Points (PT):</label>
+            <input type="number" step="0.5" id="cfgBonusPts" value="1.0" />
+          </div>
+          <div>
+            <label for="cfgEvenMin">Net Even Par Min:</label>
+            <input type="number" id="cfgEvenMin" value="36" />
+          </div>
+          <div>
+            <label for="cfgEvenMax">Net Even Par Max:</label>
+            <input type="number" id="cfgEvenMax" value="36" />
+          </div>
+          <div>
+            <label for="cfgPenAbove">Net Penalty Threshold (&ge;):</label>
+            <input type="number" id="cfgPenAbove" value="37" title="Net scores at or above this value incur penalty points" />
+          </div>
+          <div>
+            <label for="cfgPenPts">Net Penalty Points (PT):</label>
+            <input type="number" step="0.5" id="cfgPenPts" value="-1.0" />
+          </div>
+          <div>
+            <label for="cfgHcpMode">Handicap Progression Mode:</label>
+            <select id="cfgHcpMode">
+              <option value="weekly_pt" selected>Weekly PT (HCP = Prev - PT)</option>
+              <option value="usga_average">USGA Average (Best X of Y)</option>
+            </select>
+          </div>
+          <div>
+            <label for="cfgPlusHcps">Plus Handicaps Enabled:</label>
+            <select id="cfgPlusHcps">
+              <option value="1" selected>Enabled (+1 to +10, deduct on easiest holes)</option>
+              <option value="0">Disabled (Clamp to Scratch 0.0)</option>
+            </select>
+          </div>
+        </form>
+      </div>
+
+      <!-- 2. INTERACTIVE RULES & SCORING SIMULATOR -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="form-row">
+            <h2>🎯 Interactive ECGC Rules &amp; Scoring Simulator</h2>
+            <span class="badge">9-Hole 2-Person Team Match Play</span>
+          </div>
+          <div class="form-row">
+            <button id="simPresetCompetitiveBtn" type="button" class="btn small">⚡ Close Match Preset</button>
+            <button id="simPresetPlusHcpBtn" type="button" class="btn small">⚡ Plus-Hcp Preset</button>
+            <button id="runSimulateBtn" type="button" class="primary">⚔️ Run Match Simulation</button>
+          </div>
+        </div>
+
+        <div class="sim-grid">
+          <!-- TEAM A -->
+          <div class="sim-team-box">
+            <h3>Team A (Blue)</h3>
+            <div class="form-row" style="margin-top: 8px;">
+              <label for="simTeamAName">Team Name:</label>
+              <input type="text" id="simTeamAName" value="Team Alpha (Spencer &amp; Wyatt)" style="flex: 1;" />
+            </div>
+
+            <div class="sim-player-box">
+              <div class="form-row">
+                <input type="text" id="simA1Name" value="Spencer Bowman" placeholder="Player 1" aria-label="Team A Player 1 Name" style="flex: 2;" />
+                <label for="simA1Hcp" style="margin-left: 8px;">Hcp:</label>
+                <input type="number" step="0.5" id="simA1Hcp" value="6.0" style="width: 70px;" />
+              </div>
+              <div class="sim-scores-row" id="simA1Scores">
+                <input type="number" min="1" max="15" value="4" aria-label="Team A Player 1 Hole 1 Score" />
+                <input type="number" min="1" max="15" value="4" aria-label="Team A Player 1 Hole 2 Score" />
+                <input type="number" min="1" max="15" value="4" aria-label="Team A Player 1 Hole 3 Score" />
+                <input type="number" min="1" max="15" value="3" aria-label="Team A Player 1 Hole 4 Score" />
+                <input type="number" min="1" max="15" value="5" aria-label="Team A Player 1 Hole 5 Score" />
+                <input type="number" min="1" max="15" value="5" aria-label="Team A Player 1 Hole 6 Score" />
+                <input type="number" min="1" max="15" value="4" aria-label="Team A Player 1 Hole 7 Score" />
+                <input type="number" min="1" max="15" value="3" aria-label="Team A Player 1 Hole 8 Score" />
+                <input type="number" min="1" max="15" value="4" aria-label="Team A Player 1 Hole 9 Score" />
+              </div>
+              <div class="sim-scores-label"><span>H1</span><span>H2</span><span>H3</span><span>H4</span><span>H5</span><span>H6</span><span>H7</span><span>H8</span><span>H9</span></div>
+            </div>
+
+            <div class="sim-player-box">
+              <div class="form-row">
+                <input type="text" id="simA2Name" value="Wyatt Heinz" placeholder="Player 2" aria-label="Team A Player 2 Name" style="flex: 2;" />
+                <label for="simA2Hcp" style="margin-left: 8px;">Hcp:</label>
+                <input type="number" step="0.5" id="simA2Hcp" value="10.0" style="width: 70px;" />
+              </div>
+              <div class="sim-scores-row" id="simA2Scores">
+                <input type="number" min="1" max="15" value="5" aria-label="Team A Player 2 Hole 1 Score" />
+                <input type="number" min="1" max="15" value="5" aria-label="Team A Player 2 Hole 2 Score" />
+                <input type="number" min="1" max="15" value="5" aria-label="Team A Player 2 Hole 3 Score" />
+                <input type="number" min="1" max="15" value="4" aria-label="Team A Player 2 Hole 4 Score" />
+                <input type="number" min="1" max="15" value="6" aria-label="Team A Player 2 Hole 5 Score" />
+                <input type="number" min="1" max="15" value="6" aria-label="Team A Player 2 Hole 6 Score" />
+                <input type="number" min="1" max="15" value="5" aria-label="Team A Player 2 Hole 7 Score" />
+                <input type="number" min="1" max="15" value="4" aria-label="Team A Player 2 Hole 8 Score" />
+                <input type="number" min="1" max="15" value="5" aria-label="Team A Player 2 Hole 9 Score" />
+              </div>
+              <div class="sim-scores-label"><span>H1</span><span>H2</span><span>H3</span><span>H4</span><span>H5</span><span>H6</span><span>H7</span><span>H8</span><span>H9</span></div>
+            </div>
+          </div>
+
+          <!-- TEAM B -->
+          <div class="sim-team-box">
+            <h3>Team B (Red)</h3>
+            <div class="form-row" style="margin-top: 8px;">
+              <label for="simTeamBName">Team Name:</label>
+              <input type="text" id="simTeamBName" value="Team Beta (Jamie &amp; Jay)" style="flex: 1;" />
+            </div>
+
+            <div class="sim-player-box">
+              <div class="form-row">
+                <input type="text" id="simB1Name" value="Jamie Heinz" placeholder="Player 1" aria-label="Team B Player 1 Name" style="flex: 2;" />
+                <label for="simB1Hcp" style="margin-left: 8px;">Hcp:</label>
+                <input type="number" step="0.5" id="simB1Hcp" value="8.0" style="width: 70px;" />
+              </div>
+              <div class="sim-scores-row" id="simB1Scores">
+                <input type="number" min="1" max="15" value="4" aria-label="Team B Player 1 Hole 1 Score" />
+                <input type="number" min="1" max="15" value="4" aria-label="Team B Player 1 Hole 2 Score" />
+                <input type="number" min="1" max="15" value="5" aria-label="Team B Player 1 Hole 3 Score" />
+                <input type="number" min="1" max="15" value="3" aria-label="Team B Player 1 Hole 4 Score" />
+                <input type="number" min="1" max="15" value="5" aria-label="Team B Player 1 Hole 5 Score" />
+                <input type="number" min="1" max="15" value="6" aria-label="Team B Player 1 Hole 6 Score" />
+                <input type="number" min="1" max="15" value="4" aria-label="Team B Player 1 Hole 7 Score" />
+                <input type="number" min="1" max="15" value="4" aria-label="Team B Player 1 Hole 8 Score" />
+                <input type="number" min="1" max="15" value="4" aria-label="Team B Player 1 Hole 9 Score" />
+              </div>
+              <div class="sim-scores-label"><span>H1</span><span>H2</span><span>H3</span><span>H4</span><span>H5</span><span>H6</span><span>H7</span><span>H8</span><span>H9</span></div>
+            </div>
+
+            <div class="sim-player-box">
+              <div class="form-row">
+                <input type="text" id="simB2Name" value="Jay Chamberlain" placeholder="Player 2" aria-label="Team B Player 2 Name" style="flex: 2;" />
+                <label for="simB2Hcp" style="margin-left: 8px;">Hcp:</label>
+                <input type="number" step="0.5" id="simB2Hcp" value="12.0" style="width: 70px;" />
+              </div>
+              <div class="sim-scores-row" id="simB2Scores">
+                <input type="number" min="1" max="15" value="5" aria-label="Team B Player 2 Hole 1 Score" />
+                <input type="number" min="1" max="15" value="6" aria-label="Team B Player 2 Hole 2 Score" />
+                <input type="number" min="1" max="15" value="5" aria-label="Team B Player 2 Hole 3 Score" />
+                <input type="number" min="1" max="15" value="4" aria-label="Team B Player 2 Hole 4 Score" />
+                <input type="number" min="1" max="15" value="6" aria-label="Team B Player 2 Hole 5 Score" />
+                <input type="number" min="1" max="15" value="7" aria-label="Team B Player 2 Hole 6 Score" />
+                <input type="number" min="1" max="15" value="5" aria-label="Team B Player 2 Hole 7 Score" />
+                <input type="number" min="1" max="15" value="4" aria-label="Team B Player 2 Hole 8 Score" />
+                <input type="number" min="1" max="15" value="5" aria-label="Team B Player 2 Hole 9 Score" />
+              </div>
+              <div class="sim-scores-label"><span>H1</span><span>H2</span><span>H3</span><span>H4</span><span>H5</span><span>H6</span><span>H7</span><span>H8</span><span>H9</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="simResultsContainer" class="hidden"></div>
+      </div>
+
+      <!-- 3. DATABASE TABLE EXPLORER -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="form-row">
+            <h2>🗄️ Database Table Explorer (`frmDbViewer` Replacement — 380 SQLite Tables)</h2>
             <label for="rawTableSelect" class="sr-only">Database table</label>
             <select id="rawTableSelect"></select>
             <span id="rawTableCountBadge" class="badge"></span>
@@ -329,6 +564,31 @@
       </div>
     </section>
   </main>
+
+  <!-- MATCHUP BREAKDOWN MODAL -->
+  <div id="matchupBreakdownModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="breakdownModalTitle">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h2 id="breakdownModalTitle">2-Person Team Matchup Breakdown</h2>
+        <button type="button" class="btn-close" id="closeBreakdownModalBtn" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body" id="matchupBreakdownContent"></div>
+    </div>
+  </div>
+
+  <!-- CAREER PLAYER PROFILE DRAWER -->
+  <div id="playerCareerDrawer" class="drawer-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="careerDrawerTitle">
+    <div class="drawer-panel">
+      <div class="drawer-header">
+        <div>
+          <h2 id="careerDrawerTitle">Career Player Profile (2018–2026)</h2>
+          <div id="careerPlayerMeta" class="brand-sub"></div>
+        </div>
+        <button type="button" class="btn-close" id="closeCareerDrawerBtn" aria-label="Close drawer">&times;</button>
+      </div>
+      <div class="drawer-body" id="careerDrawerContent"></div>
+    </div>
+  </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="toastAlert" class="sr-only" role="alert" aria-atomic="true"></div>

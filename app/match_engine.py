@@ -706,15 +706,19 @@ def auto_score_week(conn: sqlite3.Connection, lid: int, week_num: int) -> dict[s
 
     with conn:
         # Opponents + individual/field points
+        update_opp_ind_params = []
         for m in res["matches"]:
             for side, other in (("a", "b"), ("b", "a")):
                 pid = m[side]["PlayerID"]
                 opp = m[other]["PlayerID"]
-                if conn.execute(f'SELECT 1 FROM "{res_tbl}" WHERE "WeekNum"=? AND "PlayerID"=?', (week_num, pid)).fetchone():
-                    conn.execute(f'UPDATE "{res_tbl}" SET "OpponentID"=?, "IndividualPts"=? WHERE "WeekNum"=? AND "PlayerID"=?',
-                                 (opp, m[side]["IndividualPts"], week_num, pid))
-        for pid, e in res["entries"].items():
-            conn.execute(f'UPDATE "{res_tbl}" SET "FieldPts"=? WHERE "WeekNum"=? AND "PlayerID"=?', (fld.get(pid, 0.0), week_num, pid))
+                # We assume the player results row exists if they were part of entries/matches
+                update_opp_ind_params.append((opp, m[side]["IndividualPts"], week_num, pid))
+        if update_opp_ind_params:
+            conn.executemany(f'UPDATE "{res_tbl}" SET "OpponentID"=?, "IndividualPts"=? WHERE "WeekNum"=? AND "PlayerID"=?', update_opp_ind_params)
+
+        update_fld_params = [(fld.get(pid, 0.0), week_num, pid) for pid, e in res["entries"].items()]
+        if update_fld_params:
+            conn.executemany(f'UPDATE "{res_tbl}" SET "FieldPts"=? WHERE "WeekNum"=? AND "PlayerID"=?', update_fld_params)
         # Snapshots (AdjScores / ActScores / AdjOverPar / Handicaps)
         played = {pid: e for pid, e in res["entries"].items() if e["played"]}
         _snapshot(conn, f"{lid}AdjScores", week_num, {pid: e["AdjGross"] for pid, e in played.items()})
@@ -723,21 +727,33 @@ def auto_score_week(conn: sqlite3.Connection, lid: int, week_num: int) -> dict[s
         _snapshot(conn, f"{lid}AdjOverPar", week_num, {pid: e["AdjGross"] - sum(e["adj_holes"] and ctx["pars18"][:9] if e["nine"] == "front" else ctx["pars18"][9:18] if e["nine"] == "back" else ctx["pars18"][:18]) for pid, e in played.items()})
         # Team results
         if table_exists(conn, tr_tbl):
-            for t in res["team_results"]:
-                row = conn.execute(f'SELECT 1 FROM "{tr_tbl}" WHERE "WeekNum"=? AND "TeamID"=?', (week_num, t["TeamID"])).fetchone()
-                vals = (t["TeamPts"], t["MatchPts"], 0, t["TeamActual"], t["TeamNet"])
-                if row:
-                    conn.execute(f'UPDATE "{tr_tbl}" SET "TeamPts"=?, "MatchPts"=?, "FieldPts"=?, "TeamActual"=?, "TeamNet"=? WHERE "WeekNum"=? AND "TeamID"=?',
-                                 (*vals, week_num, t["TeamID"]))
-                else:
-                    conn.execute(f'INSERT INTO "{tr_tbl}" ("WeekNum","TeamID","TeamPts","MatchPts","FieldPts","TeamActual","TeamNet","SubPts","UserDefinedPts") VALUES (?,?,?,?,?,?,?,0,0)',
-                                 (week_num, t["TeamID"], *vals))
+            update_tr_params = []
+            insert_tr_params = []
+            if res["team_results"]:
+                tr_tids = [t["TeamID"] for t in res["team_results"]]
+                placeholders = ",".join("?" * len(tr_tids))
+                existing_tids = {row[0] for row in conn.execute(f'SELECT "TeamID" FROM "{tr_tbl}" WHERE "WeekNum"=? AND "TeamID" IN ({placeholders})', [week_num] + tr_tids).fetchall()}
+                for t in res["team_results"]:
+                    vals = (t["TeamPts"], t["MatchPts"], 0, t["TeamActual"], t["TeamNet"])
+                    if t["TeamID"] in existing_tids:
+                        update_tr_params.append((*vals, week_num, t["TeamID"]))
+                    else:
+                        insert_tr_params.append((week_num, t["TeamID"], *vals))
+
+                if update_tr_params:
+                    conn.executemany(f'UPDATE "{tr_tbl}" SET "TeamPts"=?, "MatchPts"=?, "FieldPts"=?, "TeamActual"=?, "TeamNet"=? WHERE "WeekNum"=? AND "TeamID"=?', update_tr_params)
+                if insert_tr_params:
+                    conn.executemany(f'INSERT INTO "{tr_tbl}" ("WeekNum","TeamID","TeamPts","MatchPts","FieldPts","TeamActual","TeamNet","SubPts","UserDefinedPts") VALUES (?,?,?,?,?,?,?,0,0)', insert_tr_params)
+
         # Season roll-ups
-        for row in conn.execute(f'SELECT "PlayerID", COALESCE(SUM("IndividualPts"),0)+COALESCE(SUM("FieldPts"),0) FROM "{res_tbl}" GROUP BY "PlayerID"').fetchall():
-            conn.execute(f'UPDATE "{p_tbl}" SET "Points"=? WHERE "PlayerID"=?', (round(float(row[1]), 2), row[0]))
+        player_pts_params = [(round(float(row[1]), 2), row[0]) for row in conn.execute(f'SELECT "PlayerID", COALESCE(SUM("IndividualPts"),0)+COALESCE(SUM("FieldPts"),0) FROM "{res_tbl}" GROUP BY "PlayerID"').fetchall()]
+        if player_pts_params:
+            conn.executemany(f'UPDATE "{p_tbl}" SET "Points"=? WHERE "PlayerID"=?', player_pts_params)
+
         if table_exists(conn, tr_tbl) and table_exists(conn, t_tbl):
-            for row in conn.execute(f'SELECT "TeamID", COALESCE(SUM("TeamPts"),0) FROM "{tr_tbl}" GROUP BY "TeamID"').fetchall():
-                conn.execute(f'UPDATE "{t_tbl}" SET "Points"=? WHERE "TeamID"=?', (round(float(row[1]), 2), row[0]))
+            team_pts_params = [(round(float(row[1]), 2), row[0]) for row in conn.execute(f'SELECT "TeamID", COALESCE(SUM("TeamPts"),0) FROM "{tr_tbl}" GROUP BY "TeamID"').fetchall()]
+            if team_pts_params:
+                conn.executemany(f'UPDATE "{t_tbl}" SET "Points"=? WHERE "TeamID"=?', team_pts_params)
     res["persisted"] = True
     res["par_total"] = par_total
     return res

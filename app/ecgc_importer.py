@@ -620,12 +620,14 @@ def import_ecgc_data(
 
     # Copy ecgc_brackets (11 brackets from brackets.json)
     gls_conn.execute("DELETE FROM ecgc_brackets")
+    gls_conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('ecgc_seasons', 'ecgc_brackets', 'ecgc_team_members', 'league_rules_config')")
     brackets_data = []
     if brackets_json_path.exists():
         with open(brackets_json_path, encoding="utf-8") as bf:
             b_list = json.load(bf)
             for b in b_list:
                 brackets_data.append((
+                    b.get("id"),
                     b.get("year", 2026),
                     b.get("league_slug", "mens"),
                     b.get("title", "Playoff Bracket"),
@@ -639,8 +641,8 @@ def import_ecgc_data(
     if brackets_data:
         gls_conn.executemany(
             """
-            INSERT INTO ecgc_brackets (season_year, league_slug, title, source_url, local_path, playoff_champion, playoff_runner_up, playoff_finalists, rounds_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO ecgc_brackets (id, season_year, league_slug, title, source_url, local_path, playoff_champion, playoff_runner_up, playoff_finalists, rounds_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             brackets_data,
         )

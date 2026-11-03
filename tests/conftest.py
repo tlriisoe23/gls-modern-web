@@ -44,7 +44,8 @@ def db_path(tmp_path: Path) -> Path:
     if not SAMPLE_DB.exists():
         pytest.skip("bundled sample database data/gls9.db is missing")
     dst = tmp_path / "gls9_test.db"
-    shutil.copyfile(SAMPLE_DB, dst)
+    with sqlite3.connect(f"{SAMPLE_DB.as_uri()}?mode=ro", uri=True) as src, sqlite3.connect(dst) as target:
+        src.backup(target)
     return dst
 
 

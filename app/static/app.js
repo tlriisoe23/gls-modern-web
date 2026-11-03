@@ -99,10 +99,26 @@ async function api(path, opts = {}) {
 /** Wrap an async event handler so failures surface to the user instead of failing silently. */
 function guarded(fn) {
   return async (...args) => {
+    const e = args[0];
+    let el = null;
+    if (e && e.type === "submit" && e.target instanceof Element) {
+      el = e.target.querySelector('button[type="submit"]');
+    } else if (e && e.target instanceof Element && e.target.closest) {
+      el = e.target.closest('button, input[type="file"]');
+    }
+    if (el) {
+      el.disabled = true;
+      el.setAttribute("aria-busy", "true");
+    }
     try {
       await fn(...args);
     } catch (err) {
       showToast(`Error: ${err.message || err}`, { error: true });
+    } finally {
+      if (el) {
+        el.disabled = false;
+        el.removeAttribute("aria-busy");
+      }
     }
   };
 }

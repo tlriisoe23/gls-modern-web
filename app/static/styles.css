@@ -620,3 +620,48 @@ abbr[title] {
     display: none !important;
   }
 }
+
+button:disabled,
+.btn:disabled,
+input[type="file"]:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button[aria-busy="true"],
+.btn[aria-busy="true"] {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+
+button[aria-busy="true"]::after,
+.btn[aria-busy="true"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  margin-top: -7px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+  color: var(--text);
+}
+
+button.primary[aria-busy="true"]::after,
+.btn.primary[aria-busy="true"]::after {
+  color: var(--on-accent);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

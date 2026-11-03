@@ -1701,9 +1701,12 @@ function computeBlind40Client(handicap, holesMeta) {
     const name = row.PlayerName || `Player ${row.PlayerID}`;
     const isSub = Number(row.Sub || 0) === 1 || Number(row.PlayerID || 0) >= 900 || !row.TeamID;
     const theme = !isSub ? getTeamTintTheme(row.TeamID) : null;
-    const partners = (!isSub && row.TeamID && Array.isArray(sc.scorecards))
-      ? sc.scorecards.filter(c => Number(c.TeamID) === Number(row.TeamID) && Number(c.PlayerID) !== Number(row.PlayerID)).map(c => c.PlayerName).filter(Boolean)
+    const teamMembers = (!isSub && row.TeamID && Array.isArray(sc.scorecards))
+      ? sc.scorecards.filter(c => Number(c.TeamID) === Number(row.TeamID)).map(c => c.PlayerName).filter(Boolean)
       : [];
+    const teamBoxLabel = !isSub && row.TeamID
+      ? (teamMembers.length > 0 ? `Team ${row.TeamID}: ${teamMembers.join(" and ")}` : `Team ${row.TeamID}`)
+      : "SUB";
     const rowStyle = theme ? `--team-tint-bg:${theme.tint};--team-border-color:${theme.border};--team-pill-bg:${theme.pillBg};--team-pill-text:${theme.pillText};` : "";
     const holeInputs = row.holes.map((val, idx) => {
       const strokes = row.strokes_received[idx] || 0;
@@ -1730,9 +1733,8 @@ function computeBlind40Client(handicap, holesMeta) {
               <strong>${name}</strong>
               ${isSub ? html`<span class="badge sub-pill" title="Substitute Golfer">SUB</span>` : ""}
             </div>
-            ${partners.length > 0 ? html`<div class="partner-sub-tag">Partner: ${partners.join(", ")}</div>` : ""}
           </th>
-          <td><span class="team-pill-tag">T${row.TeamID || "SUB"}</span></td>
+          <td><span class="team-pill-tag">${teamBoxLabel}</span></td>
           <td class="num">${fmtHcp(row.Handicap)}</td>
           ${holeInputs}
           <td class="num"><span class="badge cell-gross">${row.Gross || "-"}</span></td>

@@ -102,22 +102,32 @@ function guarded(fn) {
     const e = args[0];
     let el = null;
     if (e && e.type === "submit" && e.target instanceof Element) {
-      el = e.target.querySelector('button[type="submit"]');
+      el = e.submitter || e.target.querySelector('button[type="submit"], button:not([type])');
     } else if (e && e.target instanceof Element && e.target.closest) {
       el = e.target.closest('button, input[type="file"]');
     }
+
+    let originalDisabled = false;
     if (el) {
-      el.disabled = true;
-      el.setAttribute("aria-busy", "true");
+      if (el.disabled) {
+        el = null;
+      } else {
+        originalDisabled = el.disabled;
+        el.disabled = true;
+        el.setAttribute("aria-busy", "true");
+      }
     }
+
     try {
       await fn(...args);
     } catch (err) {
       showToast(`Error: ${err.message || err}`, { error: true });
     } finally {
       if (el) {
-        el.disabled = false;
         el.removeAttribute("aria-busy");
+        if (el.disabled && !originalDisabled) {
+          el.disabled = false;
+        }
       }
     }
   };

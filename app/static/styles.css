@@ -648,7 +648,7 @@ button[aria-busy="true"]::after,
   border: 2px solid currentColor;
   border-right-color: transparent;
   border-radius: 50%;
-  animation: spin 0.75s linear infinite;
+  animation: btn-busy-spin 0.75s linear infinite;
   color: var(--text);
 }
 
@@ -657,7 +657,7 @@ button.primary[aria-busy="true"]::after,
   color: var(--on-accent);
 }
 
-@keyframes spin {
+@keyframes btn-busy-spin {
   from {
     transform: rotate(0deg);
   }

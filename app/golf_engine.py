@@ -533,8 +533,9 @@ def get_week_scorecard(conn: sqlite3.Connection, lid: int, week_num: int) -> dic
         over_par = (gross - par_played) if gross > 0 else 0
 
         from . import match_engine as _me
+        is_blind_40 = safe_int(r.get("Forfeit")) == 1
         ecgc_pt = _me.compute_ecgc_pt(net) if (gross > 0 and num_holes == 9) else 0.0
-        next_hcp = _me.compute_next_handicap(hcp, ecgc_pt) if (gross > 0 and num_holes == 9) else hcp
+        next_hcp = hcp if is_blind_40 else (_me.compute_next_handicap(hcp, ecgc_pt) if (gross > 0 and num_holes == 9) else hcp)
         scorecards.append({
             "PlayerID": pid,
             "TeamID": p.get("TeamID"),
@@ -542,6 +543,8 @@ def get_week_scorecard(conn: sqlite3.Connection, lid: int, week_num: int) -> dic
             "Handicap": hcp,
             "ecgc_pt": ecgc_pt,
             "next_handicap": next_hcp,
+            "is_blind_40": is_blind_40,
+            "Forfeit": safe_int(r.get("Forfeit")),
             "holes": hole_scores,
             "adj_holes": hole_adj,
             "strokes_received": hole_strokes,
@@ -907,6 +910,7 @@ def save_player_week_score(conn: sqlite3.Connection, lid: int, week_num: int, pa
     gir = safe_int(payload.get("GreensInRegulation"))
     fwy = safe_int(payload.get("NumFairwaysHit"))
     ind_pts = float(payload.get("IndividualPts") or 0)
+    is_blind_40 = 1 if (payload.get("Blind40") or payload.get("Forfeit")) else 0
 
     res_tbl = f"{lid}PlayerResults"
     adj_tbl = f"{lid}AdjScores"
@@ -918,24 +922,24 @@ def save_player_week_score(conn: sqlite3.Connection, lid: int, week_num: int, pa
             (week_num, pid),
         ).fetchone()
         if existing:
-            set_clause = ", ".join(f'{c}=?' for c in hole_cols) + ', "FrontNine"=?, "BackNine"=?, "NumPutts"=?, "GreensInRegulation"=?, "NumFairwaysHit"=?, "IndividualPts"=?'
+            set_clause = ", ".join(f'{c}=?' for c in hole_cols) + ', "FrontNine"=?, "BackNine"=?, "NumPutts"=?, "GreensInRegulation"=?, "NumFairwaysHit"=?, "IndividualPts"=?, "Forfeit"=?'
             conn.execute(
                 f'UPDATE "{res_tbl}" SET {set_clause} WHERE "WeekNum"=? AND "PlayerID"=?',
-                (*holes[:18], front, back, putts, gir, fwy, ind_pts, week_num, pid),
+                (*holes[:18], front, back, putts, gir, fwy, ind_pts, is_blind_40, week_num, pid),
             )
         else:
             cols_str = '"WeekNum", "PlayerID", ' + ", ".join(hole_cols) + ', "FrontNine", "BackNine", "NumPutts", "GreensInRegulation", "NumFairwaysHit", "IndividualPts", "Sub", "Forfeit"'
-            values = (week_num, pid, *holes[:18], front, back, putts, gir, fwy, ind_pts, 0, 0)
-            # Placeholder count is derived from the values (was hard-coded to 26 for 28
-            # columns, so the first score of any new week/player always failed).
+            values = (week_num, pid, *holes[:18], front, back, putts, gir, fwy, ind_pts, 0, is_blind_40)
             q_marks = ", ".join("?" for _ in values)
             conn.execute(f'INSERT INTO "{res_tbl}" ({cols_str}) VALUES ({q_marks})', values)
 
-        # Synchronize ESC-adjusted total into *AdjScores matrix (WeekNum, ID{pid}) (AGY-F3 / CDX-F3)
+        # Synchronize ESC-adjusted total into *AdjScores matrix (WeekNum, ID{pid}),
+        # EXCEPT when is_blind_40=1 (Blind 40 scores must NEVER be factored into a player's handicap).
         if table_exists(conn, adj_tbl):
             adj_cols = {d[1] for d in conn.execute(f'PRAGMA table_info("{adj_tbl}")').fetchall()}
             pid_col = f"ID{pid}"
             if pid_col in adj_cols:
+                adj_val_to_store = 0 if is_blind_40 else (adj_front + adj_back)
                 ex_adj = conn.execute(
                     f'SELECT 1 FROM "{adj_tbl}" WHERE "WeekNum"=?',
                     (week_num,),
@@ -943,12 +947,12 @@ def save_player_week_score(conn: sqlite3.Connection, lid: int, week_num: int, pa
                 if ex_adj:
                     conn.execute(
                         f'UPDATE "{adj_tbl}" SET "{pid_col}"=? WHERE "WeekNum"=?',
-                        (adj_front + adj_back, week_num),
+                        (adj_val_to_store, week_num),
                     )
-                else:
+                elif not is_blind_40:
                     conn.execute(
                         f'INSERT INTO "{adj_tbl}" ("WeekNum", "{pid_col}") VALUES (?, ?)',
-                        (week_num, adj_front + adj_back),
+                        (week_num, adj_val_to_store),
                     )
 
     # Automatically recompute week match play & field points
@@ -977,16 +981,29 @@ def recalculate_handicaps(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
             scores = [v for v in (safe_int(r.get(str(i))) for i in range(1, 21)) if v > 20]
             past_map[r["PlayerID"]] = scores
 
-    # Prefer ESC-adjusted scores from *AdjScores (ID{pid}), fallback to *PlayerResults
+    # Identify any (WeekNum, PlayerID) marked as Blind 40 / Forfeit=1 so they are never factored into handicaps
+    blind40_weeks: set[tuple[int, int]] = set()
+    if table_exists(conn, res_tbl):
+        for r in rows_as_dicts(conn.execute(f'SELECT "WeekNum", "PlayerID", "Forfeit" FROM "{res_tbl}"')):
+            if safe_int(r.get("Forfeit")) == 1:
+                blind40_weeks.add((safe_int(r.get("WeekNum")), safe_int(r.get("PlayerID"))))
+
+    # Prefer ESC-adjusted scores from *AdjScores (ID{pid}), fallback to *PlayerResults (excluding Blind 40)
     res_scores: dict[int, list[int]] = {}
     if table_exists(conn, adj_tbl):
         for r in rows_as_dicts(conn.execute(f'SELECT * FROM "{adj_tbl}" ORDER BY "WeekNum" ASC')):
+            wk = safe_int(r.get("WeekNum"))
             for k, val in r.items():
                 if k.startswith("ID") and k[2:].isdigit() and safe_int(val) > 20:
-                    res_scores.setdefault(int(k[2:]), []).append(safe_int(val))
+                    pid_i = int(k[2:])
+                    if (wk, pid_i) not in blind40_weeks:
+                        res_scores.setdefault(pid_i, []).append(safe_int(val))
     elif table_exists(conn, res_tbl):
         for r in rows_as_dicts(conn.execute(f'SELECT * FROM "{res_tbl}" ORDER BY "WeekNum" ASC')):
-            pid = r["PlayerID"]
+            wk = safe_int(r.get("WeekNum"))
+            pid = safe_int(r.get("PlayerID"))
+            if (wk, pid) in blind40_weeks:
+                continue
             tot = safe_int(r.get("FrontNine")) + (safe_int(r.get("BackNine")) if num_holes > 9 else 0)
             if tot > 20:
                 res_scores.setdefault(pid, []).append(tot)

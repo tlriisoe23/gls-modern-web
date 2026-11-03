@@ -68,6 +68,8 @@ class ScoreSaveReq(BaseModel):
     GreensInRegulation: int = Field(default=0, ge=0, le=18)
     NumFairwaysHit: int = Field(default=0, ge=0, le=18)
     IndividualPts: float = Field(default=0.0, ge=-1000, le=1000)
+    Blind40: bool = False
+    Forfeit: int = Field(default=0, ge=0, le=1)
 
     @field_validator("IndividualPts")
     @classmethod

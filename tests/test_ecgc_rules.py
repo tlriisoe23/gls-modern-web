@@ -444,3 +444,21 @@ def test_ecgc_blind_40_engine_and_api(client):
     assert body["gross"] == 49
     assert body["net"] == 40
     assert body["holes"] == [5, 6, 5, 5, 6, 7, 6, 4, 5]
+
+    # Verify saving a Blind 40 score in a league week does NOT change next_handicap or recalculate_handicaps
+    r_sc_before = client.get("/api/leagues/20261/week/1")
+    assert r_sc_before.status_code == 200
+    first_card = r_sc_before.json()["scorecards"][0]
+    pid = first_card["PlayerID"]
+    orig_hcp = first_card["Handicap"]
+    b40_holes = golf_engine.compute_blind_40_scores(orig_hcp)
+
+    r_save = client.post(
+        "/api/leagues/20261/week/1/scores",
+        json={"PlayerID": pid, "holes": b40_holes, "Blind40": True},
+    )
+    assert r_save.status_code == 200
+    updated_card = next(c for c in r_save.json()["scorecards"] if c["PlayerID"] == pid)
+    assert updated_card["is_blind_40"] is True
+    assert updated_card["next_handicap"] == orig_hcp
+

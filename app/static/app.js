@@ -1869,11 +1869,14 @@ function computeBlind40Client(handicap, holesMeta) {
       if (!tr) return;
       const hcp = Number(tr.dataset.hcp || 0);
       const holes = computeBlind40Client(hcp, holesMeta);
+      tr.dataset.blind40 = "1";
       const inps = Array.from(tr.querySelectorAll(".score-input"));
       inps.forEach((inp, i) => {
         if (holes[i] !== undefined) inp.value = String(holes[i]);
       });
-      if (inps[0]) inps[0].dispatchEvent(new Event("input"));
+      if (inps[0]) inps[0].dispatchEvent(new Event("input", { bubbles: false }));
+      const nextEl = tr.querySelector(".cell-nexthcp");
+      if (nextEl) nextEl.textContent = fmtHcp(hcp);
     });
   });
 
@@ -1930,6 +1933,7 @@ async function savePlayerScoreRow(pid) {
       NumPutts: putts,
       GreensInRegulation: gir,
       IndividualPts: pts,
+      Blind40: Number(rowEl.dataset.blind40 || 0) === 1,
     }),
   });
   showToast(`Saved Week ${state.activeWeek} scorecard & recalculated 2-man match + PT points!`);

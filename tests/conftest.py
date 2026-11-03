@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import shutil
+import sqlite3
+import tempfile
 import stat
 import sys
 import textwrap
@@ -19,9 +21,22 @@ from fastapi.testclient import TestClient
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# app.main constructs a module-level app during import. Redirect that import,
+# and any legacy create_app() calls, before importing it so collection is safe.
+_collection_db = tempfile.TemporaryDirectory(prefix="gls9-pytest-", dir=os.environ.get("TMPDIR"))
+SAMPLE_DB = ROOT / "data" / "gls9.db"
+_default_db = Path(_collection_db.name) / "collection.db"
+with sqlite3.connect(f"{SAMPLE_DB.as_uri()}?mode=ro", uri=True) as source:
+    with sqlite3.connect(_default_db) as target:
+        source.backup(target)
+os.environ["GLS9_DB_PATH"] = str(_default_db)
+
 from app.main import create_app  # noqa: E402
 
-SAMPLE_DB = ROOT / "data" / "gls9.db"
+
+@pytest.fixture(autouse=True)
+def isolated_default_database(db_path, monkeypatch):
+    monkeypatch.setenv("GLS9_DB_PATH", str(db_path))
 
 
 @pytest.fixture()

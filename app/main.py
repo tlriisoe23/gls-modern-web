@@ -123,6 +123,25 @@ class ScheduleGenReq(BaseModel):
     start_date: date = date(2026, 5, 5)
 
 
+def _validate_ecgc_rules(req: dict[str, Any]) -> None:
+    """Validate dynamic rule fields before conversion or SQLite binding."""
+    integer_fields = {"holes_count", "net_bonus_enabled", "net_bonus_below_max", "net_even_min", "net_even_max", "net_penalty_above_min", "plus_handicaps_enabled", "unplayed_round_score"}
+    float_fields = {"points_per_hole_win", "points_per_hole_tie", "match_hole_points_total", "net_bonus_pts", "net_even_pts", "net_penalty_pts"}
+    for key in integer_fields | float_fields:
+        if key not in req:
+            continue
+        value = req[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise HTTPException(422, detail=f"{key} must be a finite number")
+        if key in integer_fields and int(value) != value:
+            raise HTTPException(422, detail=f"{key} must be an integer")
+    for key in ("rule_type", "handicap_progression_mode"):
+        if key in req and not isinstance(req[key], str):
+            raise HTTPException(422, detail=f"{key} must be text")
+    if req.get("holes_count", 9) != 9:
+        raise HTTPException(422, detail="ECGC matches require nine holes")
+
+
 _CSP = (
     "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
     "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
@@ -733,7 +752,10 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
 
     @app.post("/api/rules/config/{lid}")
     def update_rules_config(lid: LeagueId, req: dict[str, Any]) -> dict[str, Any]:
+        _validate_ecgc_rules(req)
         with get_conn() as conn:
+            if not conn.execute('SELECT 1 FROM Leagues WHERE LeagueID=?', (lid,)).fetchone():
+                raise HTTPException(404, detail="League not found")
             if not golf_engine.table_exists(conn, "league_rules_config"):
                 raise HTTPException(status_code=404, detail="Rules config table not found")
             with conn:
@@ -784,6 +806,30 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
 
     @app.post("/api/rules/simulate")
     def simulate_ecgc_match(req: dict[str, Any]) -> dict[str, Any]:
+        for key in ("team_a", "team_b", "rules"):
+            if not isinstance(req.get(key, {}), dict):
+                raise HTTPException(422, detail=f"{key} must be an object")
+        _validate_ecgc_rules(req.get("rules", {}))
+        for key in ("hole_ranks", "pars"):
+            if key in req:
+                values = req[key]
+                if not isinstance(values, list) or len(values) != 9 or any(type(v) is not int or v < 1 for v in values):
+                    raise HTTPException(422, detail=f"{key} must contain nine positive integers")
+                if key == "hole_ranks" and sorted(values) != list(range(1, 10)):
+                    raise HTTPException(422, detail="hole_ranks must be a permutation of 1..9")
+        for team_key in ("team_a", "team_b"):
+            for player_key in ("player1", "player2"):
+                player = req.get(team_key, {}).get(player_key, {})
+                if not isinstance(player, dict):
+                    raise HTTPException(422, detail="Players must be objects")
+                hcp = player.get("handicap", 0)
+                if isinstance(hcp, bool) or not isinstance(hcp, (float, int)) or not math.isfinite(hcp) or not -54 <= hcp <= 54:
+                    raise HTTPException(422, detail="Invalid player handicap")
+                for scores_key in ("gross_scores", "holes"):
+                    if scores_key in player:
+                        scores = player[scores_key]
+                        if not isinstance(scores, list) or len(scores) != 9 or any(type(s) is not int or not -36 <= s <= golf_engine.MAX_HOLE_SCORE for s in scores):
+                            raise HTTPException(422, detail="Scores must contain nine valid integers")
         team_a = req.get("team_a", {})
         team_b = req.get("team_b", {})
         rules = req.get("rules", {})

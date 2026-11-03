@@ -290,7 +290,6 @@ def test_database_errors_do_not_leak_sql(client, db_path):
 
 
 def test_connections_are_closed_after_each_request(client, monkeypatch):
-    opened: list[sqlite3.Connection] = []
     real_connect = sqlite3.connect
 
     class TrackedConnection(sqlite3.Connection):
@@ -299,6 +298,8 @@ def test_connections_are_closed_after_each_request(client, monkeypatch):
         def close(self):
             self.closed_flag = True
             super().close()
+
+    opened: list["TrackedConnection"] = []
 
     def tracking_connect(*a, **kw):
         c = real_connect(*a, factory=TrackedConnection, **kw)
@@ -328,7 +329,6 @@ def test_mdb_migrator_closes_connection_on_subprocess_error(monkeypatch, db_path
     import subprocess
     import tempfile
 
-    opened: list[sqlite3.Connection] = []
     real_connect = sqlite3.connect
 
     class TrackedConnection(sqlite3.Connection):
@@ -336,6 +336,8 @@ def test_mdb_migrator_closes_connection_on_subprocess_error(monkeypatch, db_path
         def close(self):
             self.closed_flag = True
             super().close()
+
+    opened: list["TrackedConnection"] = []
 
     def tracking_connect(*a, **kw):
         c = real_connect(*a, factory=TrackedConnection, **kw)
@@ -370,11 +372,12 @@ def test_readme_api_inventory_matches_code():
 
     app = create_app()
     app_routes = set()
+    from starlette.routing import Route
     for route in app.routes:
-        if hasattr(route, 'methods'):
+        if isinstance(route, Route):
             if route.path in {'/docs', '/docs/oauth2-redirect', '/redoc', '/openapi.json'}:
                 continue
-            for method in route.methods:
+            for method in route.methods or []:
                 if method not in {'HEAD', 'OPTIONS'}:
                     app_routes.add(f"{method} {route.path}")
 

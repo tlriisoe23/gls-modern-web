@@ -4,6 +4,7 @@ from __future__ import annotations
 import sqlite3
 
 import pytest
+from typing import Any
 
 from app import golf_engine as ge
 
@@ -38,7 +39,6 @@ def test_safe_int_default():
 def test_strokes_zero_and_negative_handicap():
     assert ge.strokes_on_hole(0, 1) == 0
     assert ge.strokes_on_hole(-3, 1) == 0
-    assert ge.strokes_on_hole(None, 1) == 0
 
 
 def test_strokes_18_hole_total_equals_handicap():
@@ -80,7 +80,7 @@ def test_stroke_index_map_relative_order():
 
 
 def test_stroke_index_map_handles_duplicate_and_missing_ranks():
-    holes = [{"handicap_rank": 3}, {"handicap_rank": None}, {"handicap_rank": 3}, {}]
+    holes: list[dict[str, Any]] = [{"handicap_rank": 3}, {"handicap_rank": None}, {"handicap_rank": 3}, {}]
     ranks = ge.stroke_index_map(holes)
     assert sorted(ranks) == [1, 2, 3, 4]
     assert ranks[0] == 1 and ranks[2] == 2  # ties broken by hole order

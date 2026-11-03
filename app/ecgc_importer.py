@@ -1210,11 +1210,11 @@ def populate_native_gls9_leagues(conn: sqlite3.Connection) -> None:
             pt_adj = float(rnd[4] or 0)
 
             # Get 9 hole scores
-            holes = conn.execute(
+            hole_rows = conn.execute(
                 "SELECT hole_number, gross_score FROM ecgc_hole_scores WHERE round_id=? ORDER BY hole_number ASC",
                 (rnd_id,),
             ).fetchall()
-            hole_dict = {h[0]: h[1] for h in holes}
+            hole_dict = {h[0]: h[1] for h in hole_rows}
 
             conn.execute(
                 f"""

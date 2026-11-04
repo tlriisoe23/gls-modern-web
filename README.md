@@ -109,6 +109,7 @@ Test layout:
   - `POST /api/ecgc/seasons/rollover` (`app/main.py`)
   - `GET /api/export/sqlite` (`app/main.py`)
   - `GET /` (`app/main.py`)
+- `GET /api/ecgc/blind-40`
 <!-- AUTO-REPO-INVENTORY:END -->
 
 ## ECGC Rules Engine & Historical Data (Stage-2 QA, AIS-547)

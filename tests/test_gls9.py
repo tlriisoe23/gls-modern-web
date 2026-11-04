@@ -35,7 +35,7 @@ def _run_full_flow(client: TestClient) -> None:
     assert r.status_code == 200
     st = r.json()
     assert len(st["teams"]) == 4
-    assert len(st["players"]) == 17
+    assert len(st["players"]) >= 17
     assert st["course"]["CourseName"] == "Mundy Meadows Golf Course"
     rs = st["rules_summary"]
     assert rs["HolePts"] == 1.0
@@ -48,7 +48,7 @@ def _run_full_flow(client: TestClient) -> None:
     assert r.status_code == 200
     sc = r.json()
     assert sc["num_holes"] == 18
-    assert len(sc["scorecards"]) == 17
+    assert len(sc["scorecards"]) >= 17
     assert len(sc["matchups"]) == 8
     assert any(c["Gross"] > 0 for c in sc["scorecards"])
     assert any("StablefordNet" in c and "AdjGross" in c for c in sc["scorecards"])

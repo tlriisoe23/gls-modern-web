@@ -345,7 +345,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
 
             ecgc_by_wk: dict[int, list[dict[str, Any]]] = {}
             if golf_engine.table_exists(conn, "ecgc_matches") and golf_engine.table_exists(conn, "ecgc_events"):
-                for em in golf_engine.rows_as_dicts(
+                for em_row in golf_engine.rows_as_dicts(
                     conn.execute(
                         """
                         SELECT m.id AS match_id, m.match_number, m.team_a_name, m.team_a_points,
@@ -358,7 +358,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
                         (lid,),
                     )
                 ):
-                    ecgc_by_wk.setdefault(int(em.get("week_number") or 0), []).append(em)
+                    ecgc_by_wk.setdefault(int(em_row.get("week_number") or 0), []).append(em_row)
 
             for w in sched:
                 wk_num = int(w.get("WeekNum") or 0)
@@ -366,11 +366,11 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
                 w["Match2Label"] = f"Team {w.get('Match2Team1')} ({teams.get(w.get('Match2Team1'), '')}) vs Team {w.get('Match2Team2')} ({teams.get(w.get('Match2Team2'), '')})"
                 wk_matches: list[dict[str, Any]] = []
                 em_list = ecgc_by_wk.get(wk_num, [])
-                em_by_num = {int(x.get("match_number") or 0): x for x in em_list}
+                em_by_num: dict[int, dict[str, Any]] = {int(x.get("match_number") or 0): x for x in em_list}
                 for m_idx in range(1, 12):
                     t1 = golf_engine.safe_int(w.get(f"Match{m_idx}Team1"))
                     t2 = golf_engine.safe_int(w.get(f"Match{m_idx}Team2"))
-                    em = em_by_num.get(m_idx)
+                    em: dict[str, Any] | None = em_by_num.get(m_idx)
                     if t1 <= 0 and t2 <= 0 and not em:
                         continue
                     t1_name = teams.get(t1) or (em.get("team_a_name") if em else f"Team {t1}")

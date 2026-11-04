@@ -1258,6 +1258,7 @@ function renderStandingsTab(st) {
 }
 
 async function openCareerDrawer(playerId) {
+  _pushModalFocus();
   const data = await api(`/api/ecgc/players/${playerId}`);
   const drawer = document.getElementById("playerCareerDrawer");
   const titleEl = document.getElementById("careerDrawerTitle");
@@ -1359,11 +1360,24 @@ async function openCareerDrawer(playerId) {
   makeScrollRegionsFocusable(bodyEl);
 }
 
+let _modalTriggerStack = [];
+
+function _pushModalFocus() {
+  _modalTriggerStack.push(document.activeElement);
+}
+
+function _popModalFocus() {
+  const el = _modalTriggerStack.pop();
+  if (el && typeof el.focus === "function") el.focus();
+}
+
 function closeCareerDrawer() {
   document.getElementById("playerCareerDrawer")?.classList.add("hidden");
+  _popModalFocus();
 }
 
 async function openBreakdownModal(matchId) {
+  _pushModalFocus();
   const data = await api(`/api/ecgc/matches/${matchId}/breakdown`);
   const modal = document.getElementById("matchupBreakdownModal");
   const titleEl = document.getElementById("breakdownModalTitle");
@@ -1462,6 +1476,7 @@ async function openBreakdownModal(matchId) {
 
 function closeBreakdownModal() {
   document.getElementById("matchupBreakdownModal")?.classList.add("hidden");
+  _popModalFocus();
 }
 
 function extractScheduledWeekMatches(sc) {
@@ -2510,6 +2525,7 @@ async function loadCoursesTab() {
 }
 
 async function openClubhouseSheetModal() {
+  _pushModalFocus();
   const st = state.standings || (await api(`/api/leagues/${state.activeLeagueId}/standings`));
   const sc = state.scorecard || (await api(`/api/leagues/${state.activeLeagueId}/week/${state.activeWeek}`));
   const lg = st.league || {};
@@ -2642,6 +2658,7 @@ async function openClubhouseSheetModal() {
 
 function closeClubhouseSheetModal() {
   document.getElementById("clubhouseSheetModal")?.classList.add("hidden");
+  _popModalFocus();
 }
 
 async function loadExplorerTab() {

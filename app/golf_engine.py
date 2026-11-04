@@ -673,6 +673,27 @@ def auto_score_week_matches(conn: sqlite3.Connection, lid: int, week_num: int) -
             if tid > 0:
                 cards_by_tid.setdefault(tid, []).append(c)
 
+        tr_tbl_exists = table_exists(conn, tr_tbl)
+        ecgc_matches_exists = table_exists(conn, "ecgc_matches")
+        ecgc_events_exists = table_exists(conn, "ecgc_events")
+
+        event_id = None
+        if ecgc_matches_exists and ecgc_events_exists:
+            ev_row = conn.execute(
+                "SELECT id FROM ecgc_events WHERE gls_league_id=? AND week_number=?",
+                (lid, week_num),
+            ).fetchone()
+            if ev_row:
+                event_id = ev_row[0]
+
+        existing_tr_teams = set()
+        if tr_tbl_exists:
+            existing_tr_teams = {
+                r["TeamID"] for r in rows_as_dicts(
+                    conn.execute(f'SELECT "TeamID" FROM "{tr_tbl}" WHERE "WeekNum"=?', (week_num,))
+                )
+            }
+
         with conn:
             if pt_by_pid:
                 conn.executemany(
@@ -721,9 +742,8 @@ def auto_score_week_matches(conn: sqlite3.Connection, lid: int, week_num: int) -
                     hole_pts = float(side["hole_points"])
                     t_act = sum(x["Gross"] for x in cards_active)
                     t_net = sum(x["Net"] for x in cards_active)
-                    if table_exists(conn, tr_tbl):
-                        ex = conn.execute(f'SELECT 1 FROM "{tr_tbl}" WHERE "WeekNum"=? AND "TeamID"=?', (week_num, tid)).fetchone()
-                        if ex:
+                    if tr_tbl_exists:
+                        if tid in existing_tr_teams:
                             conn.execute(
                                 f'UPDATE "{tr_tbl}" SET "TeamPts"=?, "MatchPts"=?, "TeamActual"=?, "TeamNet"=? WHERE "WeekNum"=? AND "TeamID"=?',
                                 (tot_pts, hole_pts, t_act, t_net, week_num, tid),
@@ -733,27 +753,23 @@ def auto_score_week_matches(conn: sqlite3.Connection, lid: int, week_num: int) -
                                 f'INSERT INTO "{tr_tbl}" ("WeekNum","TeamID","TeamPts","MatchPts","FieldPts","TeamActual","TeamNet","SubPts","UserDefinedPts") VALUES (?,?,?,?,0,?,?,0,0)',
                                 (week_num, tid, tot_pts, hole_pts, t_act, t_net),
                             )
+                            existing_tr_teams.add(tid)
 
-                if table_exists(conn, "ecgc_matches") and table_exists(conn, "ecgc_events"):
-                    ev_row = conn.execute(
-                        "SELECT id FROM ecgc_events WHERE gls_league_id=? AND week_number=?",
-                        (lid, week_num),
-                    ).fetchone()
-                    if ev_row:
-                        conn.execute(
-                            """
-                            UPDATE ecgc_matches
-                            SET team_a_points=?, team_b_points=?, result_summary=?
-                            WHERE event_id=? AND match_number=?
-                            """,
-                            (
-                                m_res["team_a"]["total_points"],
-                                m_res["team_b"]["total_points"],
-                                m_res["summary"],
-                                ev_row[0],
-                                m_idx,
-                            ),
-                        )
+                if event_id is not None:
+                    conn.execute(
+                        """
+                        UPDATE ecgc_matches
+                        SET team_a_points=?, team_b_points=?, result_summary=?
+                        WHERE event_id=? AND match_number=?
+                        """,
+                        (
+                            m_res["team_a"]["total_points"],
+                            m_res["team_b"]["total_points"],
+                            m_res["summary"],
+                            event_id,
+                            m_idx,
+                        ),
+                    )
 
             # Recompute cumulative player season PT points
             player_pts_params = [
@@ -780,6 +796,17 @@ def auto_score_week_matches(conn: sqlite3.Connection, lid: int, week_num: int) -
     p_tbl = f"{lid}Players"
     tr_tbl = f"{lid}TeamResults"
     t_tbl = f"{lid}Teams"
+
+    tr_tbl_exists = table_exists(conn, tr_tbl)
+    t_tbl_exists = table_exists(conn, t_tbl)
+
+    existing_tr_teams = set()
+    if tr_tbl_exists:
+        existing_tr_teams = {
+            r["TeamID"] for r in rows_as_dicts(
+                conn.execute(f'SELECT "TeamID" FROM "{tr_tbl}" WHERE "WeekNum"=?', (week_num,))
+            )
+        }
 
     with conn:
         if pts_by_pid:
@@ -808,7 +835,7 @@ def auto_score_week_matches(conn: sqlite3.Connection, lid: int, week_num: int) -
             )
 
         # Roll up team results for the week
-        if table_exists(conn, tr_tbl) and table_exists(conn, t_tbl):
+        if tr_tbl_exists and t_tbl_exists:
             team_cards: dict[int, list[dict[str, Any]]] = {}
             for c in scorecards:
                 if c["Gross"] > 0 and c.get("TeamID"):
@@ -838,11 +865,8 @@ def auto_score_week_matches(conn: sqlite3.Connection, lid: int, week_num: int) -
                 ind_sum = sum(pts_by_pid.get(x["PlayerID"], x["IndividualPts"]) for x in cards)
                 m_pts = team_bonus_by_tid.get(tid, 0.0)
                 tot_t_pts = round(ind_sum + m_pts, 2)
-                exists_tr = conn.execute(
-                    f'SELECT 1 FROM "{tr_tbl}" WHERE "WeekNum"=? AND "TeamID"=?',
-                    (week_num, tid),
-                ).fetchone()
-                if exists_tr:
+
+                if tid in existing_tr_teams:
                     conn.execute(
                         f'UPDATE "{tr_tbl}" SET "TeamPts"=?, "MatchPts"=?, "TeamActual"=?, "TeamNet"=? WHERE "WeekNum"=? AND "TeamID"=?',
                         (tot_t_pts, m_pts, t_act, t_net, week_num, tid),
@@ -852,6 +876,7 @@ def auto_score_week_matches(conn: sqlite3.Connection, lid: int, week_num: int) -
                         f'INSERT INTO "{tr_tbl}" ("WeekNum","TeamID","TeamPts","MatchPts","FieldPts","TeamActual","TeamNet","SubPts","UserDefinedPts") VALUES (?,?,?,?,0,?,?,0,0)',
                         (week_num, tid, tot_t_pts, m_pts, t_act, t_net),
                     )
+                    existing_tr_teams.add(tid)
 
             # Update season *Teams.Points
             # Every team with result rows is rewritten (including a 0 total) so that a

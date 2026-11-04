@@ -152,6 +152,15 @@ try {
   const escapedExpanded = await caddy.getAttribute("aria-expanded");
   record("A11y 2.1.1: Escape closes caddy and focuses toggle button", caddyHidden && toggleFocused && escapedExpanded === "false", `${caddyHidden} ${toggleFocused} ${escapedExpanded}`);
 
+  // A11y 2.4.3 Focus Order: Escape from clubhouse modal returns focus to trigger button
+  await page.click("#tabbtn-scorecard");
+  await page.click("#printSheetBtn");
+  await page.waitForFunction(() => !document.getElementById("clubhouseSheetModal").classList.contains("hidden"));
+  await page.keyboard.press("Escape");
+  const modalHidden = await page.evaluate(() => document.getElementById("clubhouseSheetModal").classList.contains("hidden"));
+  const triggerFocused = await page.evaluate(() => document.activeElement?.id === "printSheetBtn");
+  record("A11y 2.4.3: Escape from clubhouse modal returns focus to trigger button", modalHidden && triggerFocused, `modalHidden: ${modalHidden}, triggerFocused: ${triggerFocused}`);
+
   // Every visible form control & button has an accessible name.
   for (const tab of ["standings", "scorecard", "roster", "schedule", "courses", "explorer"]) {
     await page.click(`#tabbtn-${tab}`);

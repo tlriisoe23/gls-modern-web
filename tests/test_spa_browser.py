@@ -57,7 +57,8 @@ def test_spa_xss_and_accessibility(db_path: Path):
         base = f"http://127.0.0.1:{port}"
         for _ in range(100):
             try:
-                urllib.request.urlopen(f"{base}/api/health", timeout=1)
+                with urllib.request.urlopen(f"{base}/api/health", timeout=1):
+                    pass
                 break
             except OSError:
                 time.sleep(0.1)

@@ -61,7 +61,7 @@ def _finite(v: float, field: str) -> float:
 
 
 class ScoreSaveReq(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
 
     PlayerID: int = Field(ge=1, le=10_000_000)
     holes: list[Annotated[int, Field(ge=0, le=golf_engine.MAX_HOLE_SCORE)]] = Field(max_length=18)
@@ -79,7 +79,7 @@ class ScoreSaveReq(BaseModel):
 
 
 class PlayerUpsertReq(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
 
     PlayerID: int | None = Field(default=None, ge=1, le=10_000_000)
     TeamID: int = Field(default=1, ge=1, le=999)
@@ -120,7 +120,7 @@ class PlayerUpsertReq(BaseModel):
 
 
 class ScheduleGenReq(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
 
     weeks: int = Field(default=16, ge=1, le=golf_engine.MAX_SCHEDULE_WEEKS)
     start_date: date = date(2026, 5, 5)

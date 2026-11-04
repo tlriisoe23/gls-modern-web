@@ -1,0 +1,39 @@
+<<<<<<< SEARCH
+function closeCareerDrawer() {
+  document.getElementById("playerCareerDrawer")?.classList.add("hidden");
+  _popModalFocus();
+}
+=======
+function closeCareerDrawer() {
+  const m = document.getElementById("playerCareerDrawer");
+  if (!m || m.classList.contains("hidden")) return;
+  m.classList.add("hidden");
+  _popModalFocus();
+}
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+function closeBreakdownModal() {
+  document.getElementById("matchupBreakdownModal")?.classList.add("hidden");
+  _popModalFocus();
+}
+=======
+function closeBreakdownModal() {
+  const m = document.getElementById("matchupBreakdownModal");
+  if (!m || m.classList.contains("hidden")) return;
+  m.classList.add("hidden");
+  _popModalFocus();
+}
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+function closeClubhouseSheetModal() {
+  document.getElementById("clubhouseSheetModal")?.classList.add("hidden");
+  _popModalFocus();
+}
+=======
+function closeClubhouseSheetModal() {
+  const m = document.getElementById("clubhouseSheetModal");
+  if (!m || m.classList.contains("hidden")) return;
+  m.classList.add("hidden");
+  _popModalFocus();
+}
+>>>>>>> REPLACE

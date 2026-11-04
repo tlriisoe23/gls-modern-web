@@ -1258,13 +1258,16 @@ function renderStandingsTab(st) {
 }
 
 async function openCareerDrawer(playerId) {
-  _pushModalFocus();
-  const data = await api(`/api/ecgc/players/${playerId}`);
   const drawer = document.getElementById("playerCareerDrawer");
-  const titleEl = document.getElementById("careerDrawerTitle");
-  const metaEl = document.getElementById("careerPlayerMeta");
-  const bodyEl = document.getElementById("careerDrawerContent");
-  if (!drawer || !bodyEl) return;
+  const isHidden = !drawer || drawer.classList.contains("hidden");
+  if (isHidden) _pushModalFocus();
+
+  try {
+    const data = await api(`/api/ecgc/players/${playerId}`);
+    const titleEl = document.getElementById("careerDrawerTitle");
+    const metaEl = document.getElementById("careerPlayerMeta");
+    const bodyEl = document.getElementById("careerDrawerContent");
+    if (!drawer || !bodyEl) return;
 
   const p = data.player || {};
   const seasons = data.season_summary || [];
@@ -1354,10 +1357,14 @@ async function openCareerDrawer(playerId) {
           </table>
         </div>
       </div>
-    `
-  );
-  drawer.classList.remove("hidden");
-  makeScrollRegionsFocusable(bodyEl);
+      `
+    );
+    drawer.classList.remove("hidden");
+    makeScrollRegionsFocusable(bodyEl);
+  } catch (err) {
+    if (isHidden) _modalTriggerStack.pop();
+    throw err;
+  }
 }
 
 let _modalTriggerStack = [];
@@ -1377,12 +1384,15 @@ function closeCareerDrawer() {
 }
 
 async function openBreakdownModal(matchId) {
-  _pushModalFocus();
-  const data = await api(`/api/ecgc/matches/${matchId}/breakdown`);
   const modal = document.getElementById("matchupBreakdownModal");
-  const titleEl = document.getElementById("breakdownModalTitle");
-  const contentEl = document.getElementById("matchupBreakdownContent");
-  if (!modal || !contentEl) return;
+  const isHidden = !modal || modal.classList.contains("hidden");
+  if (isHidden) _pushModalFocus();
+
+  try {
+    const data = await api(`/api/ecgc/matches/${matchId}/breakdown`);
+    const titleEl = document.getElementById("breakdownModalTitle");
+    const contentEl = document.getElementById("matchupBreakdownContent");
+    if (!modal || !contentEl) return;
 
   const m = data.match || {};
   const ta = data.team_a || {};
@@ -1468,10 +1478,14 @@ async function openBreakdownModal(matchId) {
           </tbody>
         </table>
       </div>
-    `
-  );
-  modal.classList.remove("hidden");
-  makeScrollRegionsFocusable(contentEl);
+      `
+    );
+    modal.classList.remove("hidden");
+    makeScrollRegionsFocusable(contentEl);
+  } catch (err) {
+    if (isHidden) _modalTriggerStack.pop();
+    throw err;
+  }
 }
 
 function closeBreakdownModal() {
@@ -2525,9 +2539,13 @@ async function loadCoursesTab() {
 }
 
 async function openClubhouseSheetModal() {
-  _pushModalFocus();
-  const st = state.standings || (await api(`/api/leagues/${state.activeLeagueId}/standings`));
-  const sc = state.scorecard || (await api(`/api/leagues/${state.activeLeagueId}/week/${state.activeWeek}`));
+  const modal = document.getElementById("clubhouseSheetModal");
+  const isHidden = !modal || modal.classList.contains("hidden");
+  if (isHidden) _pushModalFocus();
+
+  try {
+    const st = state.standings || (await api(`/api/leagues/${state.activeLeagueId}/standings`));
+    const sc = state.scorecard || (await api(`/api/leagues/${state.activeLeagueId}/week/${state.activeWeek}`));
   const lg = st.league || {};
   const teams = [...(st.teams || [])].sort((a, b) => Number(b.Points || 0) - Number(a.Points || 0));
   const leaderPts = teams.length > 0 ? Number(teams[0].Points || 0) : 0;
@@ -2651,9 +2669,13 @@ async function openClubhouseSheetModal() {
     </div>
   `;
 
-  setHtml(document.getElementById("clubhouseModalContent"), sheetFragment);
-  setHtml(document.getElementById("clubhousePrintSheet"), sheetFragment);
-  document.getElementById("clubhouseSheetModal")?.classList.remove("hidden");
+    setHtml(document.getElementById("clubhouseModalContent"), sheetFragment);
+    setHtml(document.getElementById("clubhousePrintSheet"), sheetFragment);
+    modal?.classList.remove("hidden");
+  } catch (err) {
+    if (isHidden) _modalTriggerStack.pop();
+    throw err;
+  }
 }
 
 function closeClubhouseSheetModal() {

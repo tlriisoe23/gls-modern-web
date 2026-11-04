@@ -1,0 +1,57 @@
+<<<<<<< SEARCH
+async function openCareerDrawer(playerId) {
+  _pushModalFocus();
+  const data = await api(`/api/ecgc/players/${playerId}`);
+  const drawer = document.getElementById("playerCareerDrawer");
+  const titleEl = document.getElementById("careerDrawerTitle");
+  const metaEl = document.getElementById("careerPlayerMeta");
+  const bodyEl = document.getElementById("careerDrawerContent");
+  if (!drawer || !bodyEl) return;
+=======
+async function openCareerDrawer(playerId) {
+  const drawer = document.getElementById("playerCareerDrawer");
+  const isHidden = !drawer || drawer.classList.contains("hidden");
+  if (isHidden) _pushModalFocus();
+
+  try {
+    const data = await api(`/api/ecgc/players/${playerId}`);
+    const titleEl = document.getElementById("careerDrawerTitle");
+    const metaEl = document.getElementById("careerPlayerMeta");
+    const bodyEl = document.getElementById("careerDrawerContent");
+    if (!drawer || !bodyEl) return;
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+async function openBreakdownModal(matchId) {
+  _pushModalFocus();
+  const data = await api(`/api/ecgc/matches/${matchId}/breakdown`);
+  const modal = document.getElementById("matchupBreakdownModal");
+  const titleEl = document.getElementById("breakdownModalTitle");
+  const contentEl = document.getElementById("matchupBreakdownContent");
+  if (!modal || !contentEl) return;
+=======
+async function openBreakdownModal(matchId) {
+  const modal = document.getElementById("matchupBreakdownModal");
+  const isHidden = !modal || modal.classList.contains("hidden");
+  if (isHidden) _pushModalFocus();
+
+  try {
+    const data = await api(`/api/ecgc/matches/${matchId}/breakdown`);
+    const titleEl = document.getElementById("breakdownModalTitle");
+    const contentEl = document.getElementById("matchupBreakdownContent");
+    if (!modal || !contentEl) return;
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+async function openClubhouseSheetModal() {
+  _pushModalFocus();
+  const st = state.standings || (await api(`/api/leagues/${state.activeLeagueId}/standings`));
+  const sc = state.scorecard || (await api(`/api/leagues/${state.activeLeagueId}/week/${state.activeWeek}`));
+=======
+async function openClubhouseSheetModal() {
+  const modal = document.getElementById("clubhouseSheetModal");
+  const isHidden = !modal || modal.classList.contains("hidden");
+  if (isHidden) _pushModalFocus();
+
+  try {
+    const st = state.standings || (await api(`/api/leagues/${state.activeLeagueId}/standings`));
+    const sc = state.scorecard || (await api(`/api/leagues/${state.activeLeagueId}/week/${state.activeWeek}`));
+>>>>>>> REPLACE

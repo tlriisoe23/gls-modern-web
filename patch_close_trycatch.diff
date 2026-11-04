@@ -1,0 +1,41 @@
+<<<<<<< SEARCH
+  setHtml(bodyEl, frag);
+  drawer.classList.remove("hidden");
+  makeScrollRegionsFocusable(bodyEl);
+}
+=======
+    setHtml(bodyEl, frag);
+    drawer.classList.remove("hidden");
+    makeScrollRegionsFocusable(bodyEl);
+  } catch (err) {
+    if (isHidden) _modalTriggerStack.pop();
+    throw err;
+  }
+}
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+  modal.classList.remove("hidden");
+  makeScrollRegionsFocusable(contentEl);
+}
+=======
+    modal.classList.remove("hidden");
+    makeScrollRegionsFocusable(contentEl);
+  } catch (err) {
+    if (isHidden) _modalTriggerStack.pop();
+    throw err;
+  }
+}
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+  setHtml(document.getElementById("clubhouseModalContent"), sheetFragment);
+  document.getElementById("clubhouseSheetModal")?.classList.remove("hidden");
+}
+=======
+    setHtml(document.getElementById("clubhouseModalContent"), sheetFragment);
+    modal?.classList.remove("hidden");
+  } catch (err) {
+    if (isHidden) _modalTriggerStack.pop();
+    throw err;
+  }
+}
+>>>>>>> REPLACE

@@ -252,6 +252,16 @@ button,
   gap: 6px;
 }
 
+button:disabled,
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+[aria-busy="true"] {
+  cursor: progress;
+}
+
 button.primary,
 .btn.primary {
   background: var(--accent);

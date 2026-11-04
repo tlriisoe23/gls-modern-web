@@ -2,6 +2,7 @@
 Reconstructed from /workspace/knowledge-base/gls9-golfsoft-bundle/dossier.md."""
 from __future__ import annotations
 
+import logging
 import math
 import os
 import re
@@ -9,7 +10,7 @@ import sqlite3
 import subprocess
 import tempfile
 import unicodedata
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import date
 from pathlib import Path
 from typing import Annotated, Any, Awaitable, Callable, Generator
@@ -161,13 +162,14 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
     # Auto-seed ECGC data if db_file exists and ECGC tables/seasons not yet populated
     if db_file.exists():
         try:
-            with sqlite3.connect(str(db_file), timeout=10) as _c_init:
-                has_ecgc = golf_engine.table_exists(_c_init, "ecgc_seasons") and \
-                    _c_init.execute('SELECT COUNT(*) FROM ecgc_seasons').fetchone()[0] >= 18
-                if not has_ecgc and ecgc_importer.DEFAULT_ECGC_SQLITE.exists():
-                    ecgc_importer.import_ecgc_data(_c_init)
-        except Exception:
-            pass
+            with closing(sqlite3.connect(str(db_file), timeout=10)) as _c_init:
+                with _c_init:
+                    has_ecgc = golf_engine.table_exists(_c_init, "ecgc_seasons") and \
+                        _c_init.execute('SELECT COUNT(*) FROM ecgc_seasons').fetchone()[0] >= 18
+                    if not has_ecgc and ecgc_importer.DEFAULT_ECGC_SQLITE.exists():
+                        ecgc_importer.import_ecgc_data(_c_init)
+        except Exception as e:
+            logging.getLogger(__name__).warning("Auto-seed ECGC data failed: %s", e)
 
     app = FastAPI(title="Golf League Secretary — Modern Web Edition (GLS9 Clean-Room)", version="2.0.0")
     app.state.db_file = db_file

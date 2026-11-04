@@ -105,10 +105,29 @@ async function api(path, opts = {}) {
 
 function guarded(fn) {
   return async (...args) => {
+    const event = args[0] instanceof Event ? args[0] : null;
+    let btn = null;
+    if (event) {
+      if (event.type === "submit" && event.submitter && typeof event.submitter.disabled !== "undefined") {
+        btn = event.submitter;
+      } else if (event.currentTarget && typeof event.currentTarget.disabled !== "undefined" && event.currentTarget.tagName === "BUTTON") {
+        btn = event.currentTarget;
+      }
+    }
+    const wasDisabled = btn ? btn.disabled : false;
+    if (btn && !wasDisabled) {
+      btn.disabled = true;
+      btn.setAttribute("aria-busy", "true");
+    }
     try {
       await fn(...args);
     } catch (err) {
       showToast(`Error: ${err.message || err}`, { error: true });
+    } finally {
+      if (btn && !wasDisabled) {
+        btn.disabled = false;
+        btn.removeAttribute("aria-busy");
+      }
     }
   };
 }

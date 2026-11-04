@@ -69,3 +69,421 @@ def test_tee_times():
     assert me.tee_times("04:00 PM", 15, 2) == ["4:00 PM", "4:15 PM"]
     assert me.tee_times("14:30", 8, 3) == ["2:30 PM", "2:38 PM", "2:46 PM"]
     assert me.tee_times("invalid", 10, 2) == ["5:30 PM", "5:40 PM"]
+
+def test_detect_nine():
+    # 18 holes
+    assert me.detect_nine([1]*18, 18) == "both"
+    # Front 9
+    assert me.detect_nine([1]*9 + [0]*9, 9) == "front"
+    # Back 9
+    assert me.detect_nine([0]*9 + [1]*9, 9) == "back"
+    # Default fallback
+    assert me.detect_nine([0]*18, 9, "front") == "front"
+    assert me.detect_nine([0]*18, 9, "back") == "back"
+
+def test_rules_summary():
+    ctx = {
+        "scoring_mode": 2,
+        "scoring_mode_name": "hole_by_hole_match",
+        "adjust_mode": 3,
+        "adjust_mode_name": "usga_esc",
+        "stableford": {},
+        "stableford_source": "default",
+        "divisions": ["A"],
+        "num_man_teams": 2,
+        "league": {
+            "FirstTeeTime": "05:30 PM",
+            "MinsBetweenGroups": 10,
+            "SubPercent": 100
+        },
+        "rules": {
+            "IndPtsNet": 1.0,
+            "IndPtsAct": 0.0,
+            "IndPtsNetMatch": 2.0,
+            "IndPtsActMatch": 0.0,
+            "IndPtsHolesMatch": 0.0,
+            "IndPtsNetField": 0.0,
+            "IndNetFieldDiff": 0.0,
+            "TeamPtsNetMatch": 2.0,
+            "TeamPtsHolesMatch": 2.0,
+            "PlayerForfeit": 10.0,
+        }
+    }
+    summary = me.rules_summary(ctx)
+    assert summary["scoring_mode"] == 2
+    assert "1 pt per net hole won (ties split)" in summary["human_rules"]
+    assert "2 pts for low net round (ties split)" in summary["human_rules"]
+    assert "Team: 2 pts low team net" in summary["human_rules"]
+    assert "Team: 2 pts aggregate net holes won" in summary["human_rules"]
+    assert "Forfeit: opponent receives 10" in summary["human_rules"]
+    assert summary["rule_values"]["IndPtsNet"] == 1.0
+
+def test_score_ecgc_2person_match():
+    team_a = {
+        "team_id": 1,
+        "team_name": "Team A",
+        "player1": {"id": 1, "name": "P1", "handicap": 5.0, "gross_scores": [4,4,4,4,4,4,4,4,4]},
+        "player2": {"id": 2, "name": "P2", "handicap": 5.0, "gross_scores": [4,4,4,4,4,4,4,4,4]}
+    }
+    team_b = {
+        "team_id": 2,
+        "team_name": "Team B",
+        "player1": {"id": 3, "name": "P3", "handicap": 5.0, "gross_scores": [5,5,5,5,5,5,5,5,5]},
+        "player2": {"id": 4, "name": "P4", "handicap": 5.0, "gross_scores": [5,5,5,5,5,5,5,5,5]}
+    }
+    rules = {
+        "points_per_hole_win": 1.0,
+        "points_per_hole_tie": 0.5,
+        "net_bonus_below_max": 35,
+        "net_bonus_pts": 1.0,
+        "net_even_min": 36,
+        "net_even_max": 36,
+        "net_even_pts": 0.0,
+        "net_penalty_above_min": 37,
+        "net_penalty_pts": -1.0,
+    }
+    pars = [4]*9
+    ranks = [1,2,3,4,5,6,7,8,9]
+    res = me.score_ecgc_2person_match(team_a, team_b, ranks, pars, rules)
+    assert res["status"] == "scored"
+    assert res["team_a"]["hole_points"] == 9.0
+    assert res["team_b"]["hole_points"] == 0.0
+    assert res["match_winner"] == "team_a"
+    # P1 net: 36 - 5 = 31 (under 35 => 1 pt)
+    assert res["team_a"]["pt_bonus_total"] == 2.0
+
+def test_score_match_forfeit_and_absent():
+    ctx = {
+        "scoring_mode_name": "hole_by_hole_match",
+        "rules": {
+            "PlayerForfeit": 10.0,
+            "PresentPlayerPts": 12.0
+        },
+        "players": []
+    }
+    a_played = {"PlayerID": 1, "PlayerName": "A", "Handicap": 0, "Gross": 36, "AdjGross": 36, "Net": 36, "holes": [4]*9, "adj_holes": [4]*9, "net_holes": [4]*9, "strokes": [0]*9, "played": True, "forfeit": False}
+    b_forfeit = {"PlayerID": 2, "PlayerName": "B", "Handicap": 0, "Gross": 0, "AdjGross": 0, "Net": 0, "holes": [0]*9, "adj_holes": [0]*9, "net_holes": [0]*9, "strokes": [0]*9, "played": False, "forfeit": True}
+
+    # B forfeits, A gets forfeit points (10.0)
+    res1 = me.score_match(ctx, a_played, b_forfeit, 1, 2)
+    assert res1["status"] == "forfeit_b"
+    assert res1["a"]["IndividualPts"] == 10.0
+    assert res1["b"]["IndividualPts"] == 0.0
+
+    b_absent = {"PlayerID": 2, "PlayerName": "B", "Handicap": 0, "Gross": 0, "AdjGross": 0, "Net": 0, "holes": [0]*9, "adj_holes": [0]*9, "net_holes": [0]*9, "strokes": [0]*9, "played": False, "forfeit": False}
+    # B absent, A gets present points (12.0)
+    res2 = me.score_match(ctx, a_played, b_absent, 1, 2)
+    assert res2["status"] == "absent_b"
+    assert res2["a"]["IndividualPts"] == 12.0
+    assert res2["b"]["IndividualPts"] == 0.0
+
+def test_score_match_hole_by_hole():
+    ctx = {
+        "scoring_mode_name": "hole_by_hole_match",
+        "rules": {
+            "IndPtsNet": 1.0,
+            "IndPtsAct": 0.5,
+            "IndPtsNetMatch": 2.0,
+            "IndPtsActMatch": 1.0,
+            "IndPtsHolesMatch": 0.0
+        },
+        "players": []
+    }
+    a = {"PlayerID": 1, "PlayerName": "A", "Handicap": 0, "Gross": 35, "AdjGross": 35, "Net": 35, "holes": [3,4,4,4,4,4,4,4,4], "adj_holes": [3,4,4,4,4,4,4,4,4], "net_holes": [3,4,4,4,4,4,4,4,4], "strokes": [0]*9, "played": True, "forfeit": False}
+    b = {"PlayerID": 2, "PlayerName": "B", "Handicap": 0, "Gross": 36, "AdjGross": 36, "Net": 36, "holes": [4,4,4,4,4,4,4,4,4], "adj_holes": [4,4,4,4,4,4,4,4,4], "net_holes": [4,4,4,4,4,4,4,4,4], "strokes": [0]*9, "played": True, "forfeit": False}
+
+    res = me.score_match(ctx, a, b, 1, 2)
+    assert res["status"] == "scored"
+    # A wins hole 1, ties other 8. Total holes won = 1 + 8*(0.5) = 5.0
+    # B wins 0 holes, ties 8. Total holes won = 0 + 8*(0.5) = 4.0
+    # Net pts A: 5.0 * 1.0 = 5.0. Gross pts A: 5.0 * 0.5 = 2.5
+    # A has low net (35 vs 36) -> 2.0. A has low gross (35 vs 36) -> 1.0
+    # Total A = 5.0 + 2.5 + 2.0 + 1.0 = 10.5
+    assert res["a"]["IndividualPts"] == 10.5
+    # Net pts B: 4.0 * 1.0 = 4.0. Gross pts B: 4.0 * 0.5 = 2.0
+    # Total B = 4.0 + 2.0 + 0 + 0 = 6.0
+    assert res["b"]["IndividualPts"] == 6.0
+
+def test_score_match_nines_plus_match():
+    ctx = {
+        "scoring_mode_name": "nines_plus_match",
+        "rules": {
+            "IndPtsNet": 1.0,
+            "IndPtsHolesMatch": 2.0,
+            "IndPtsNetMatch": 2.0
+        },
+        "players": []
+    }
+    # Test with 18 holes
+    a = {"PlayerID": 1, "PlayerName": "A", "Handicap": 0, "Gross": 70, "AdjGross": 70, "Net": 70, "holes": [3]*18, "adj_holes": [3]*18, "net_holes": [3]*18, "strokes": [0]*18, "played": True, "forfeit": False}
+    b = {"PlayerID": 2, "PlayerName": "B", "Handicap": 0, "Gross": 72, "AdjGross": 72, "Net": 72, "holes": [4]*18, "adj_holes": [4]*18, "net_holes": [4]*18, "strokes": [0]*18, "played": True, "forfeit": False}
+
+    res = me.score_match(ctx, a, b, 1, 2)
+    assert res["status"] == "scored"
+    # A wins front nine net (27 vs 36) -> 1.0
+    # A wins back nine net (27 vs 36) -> 1.0
+    # A wins holes match (18 vs 0) -> 2.0
+    # A wins low net round (70 vs 72) -> 2.0
+    # Total A = 1.0 + 1.0 + 2.0 + 2.0 = 6.0
+    assert res["a"]["IndividualPts"] == 6.0
+    assert res["b"]["IndividualPts"] == 0.0
+
+    # Test with 9 holes
+    a9 = {"PlayerID": 1, "PlayerName": "A", "Handicap": 0, "Gross": 35, "AdjGross": 35, "Net": 35, "holes": [3]*9, "adj_holes": [3]*9, "net_holes": [3]*9, "strokes": [0]*9, "played": True, "forfeit": False}
+    b9 = {"PlayerID": 2, "PlayerName": "B", "Handicap": 0, "Gross": 36, "AdjGross": 36, "Net": 36, "holes": [4]*9, "adj_holes": [4]*9, "net_holes": [4]*9, "strokes": [0]*9, "played": True, "forfeit": False}
+    res9 = me.score_match(ctx, a9, b9, 1, 2)
+    assert res9["a"]["IndividualPts"] == 5.0 # 1.0 (nine net) + 2.0 (holes match) + 2.0 (low net)
+
+def test_score_match_missing_scores():
+    ctx = {
+        "scoring_mode_name": "hole_by_hole_match",
+        "rules": {},
+        "players": []
+    }
+    a_unplayed = {"PlayerID": 1, "PlayerName": "A", "Handicap": 0, "Gross": 0, "AdjGross": 0, "Net": 0, "holes": [0]*9, "adj_holes": [0]*9, "net_holes": [0]*9, "strokes": [0]*9, "played": False, "forfeit": False}
+    b_unplayed = {"PlayerID": 2, "PlayerName": "B", "Handicap": 0, "Gross": 0, "AdjGross": 0, "Net": 0, "holes": [0]*9, "adj_holes": [0]*9, "net_holes": [0]*9, "strokes": [0]*9, "played": False, "forfeit": False}
+
+    res = me.score_match(ctx, a_unplayed, b_unplayed, 1, 2)
+    assert res["status"] == "no_scores"
+    assert res["a"]["IndividualPts"] == 0.0
+    assert res["b"]["IndividualPts"] == 0.0
+
+    res2 = me.score_match(ctx, None, None, 1, 2)
+    assert res2["status"] == "no_scores"
+
+def test_score_match_forfeit_a_and_absent_a():
+    ctx = {
+        "scoring_mode_name": "hole_by_hole_match",
+        "rules": {
+            "PlayerForfeit": 10.0,
+            "PresentPlayerPts": 12.0
+        },
+        "players": []
+    }
+    b_played = {"PlayerID": 2, "PlayerName": "B", "Handicap": 0, "Gross": 36, "AdjGross": 36, "Net": 36, "holes": [4]*9, "adj_holes": [4]*9, "net_holes": [4]*9, "strokes": [0]*9, "played": True, "forfeit": False}
+    a_forfeit = {"PlayerID": 1, "PlayerName": "A", "Handicap": 0, "Gross": 0, "AdjGross": 0, "Net": 0, "holes": [0]*9, "adj_holes": [0]*9, "net_holes": [0]*9, "strokes": [0]*9, "played": False, "forfeit": True}
+
+    # A forfeits, B gets forfeit points (10.0)
+    res1 = me.score_match(ctx, a_forfeit, b_played, 1, 2)
+    assert res1["status"] == "forfeit_a"
+    assert res1["a"]["IndividualPts"] == 0.0
+    assert res1["b"]["IndividualPts"] == 10.0
+
+    a_absent = {"PlayerID": 1, "PlayerName": "A", "Handicap": 0, "Gross": 0, "AdjGross": 0, "Net": 0, "holes": [0]*9, "adj_holes": [0]*9, "net_holes": [0]*9, "strokes": [0]*9, "played": False, "forfeit": False}
+    # A absent, B gets present points (12.0)
+    res2 = me.score_match(ctx, a_absent, b_played, 1, 2)
+    assert res2["status"] == "absent_a"
+    assert res2["a"]["IndividualPts"] == 0.0
+    assert res2["b"]["IndividualPts"] == 12.0
+
+def test_score_match_hole_by_hole_holesmatch():
+    ctx = {
+        "scoring_mode_name": "hole_by_hole_match",
+        "rules": {
+            "IndPtsNet": 0.0,
+            "IndPtsAct": 0.0,
+            "IndPtsNetMatch": 0.0,
+            "IndPtsActMatch": 0.0,
+            "IndPtsHolesMatch": 5.0
+        },
+        "players": []
+    }
+    a = {"PlayerID": 1, "PlayerName": "A", "Handicap": 0, "Gross": 35, "AdjGross": 35, "Net": 35, "holes": [3,4,4,4,4,4,4,4,4], "adj_holes": [3,4,4,4,4,4,4,4,4], "net_holes": [3,4,4,4,4,4,4,4,4], "strokes": [0]*9, "played": True, "forfeit": False}
+    b = {"PlayerID": 2, "PlayerName": "B", "Handicap": 0, "Gross": 36, "AdjGross": 36, "Net": 36, "holes": [4,4,4,4,4,4,4,4,4], "adj_holes": [4,4,4,4,4,4,4,4,4], "net_holes": [4,4,4,4,4,4,4,4,4], "strokes": [0]*9, "played": True, "forfeit": False}
+
+    res = me.score_match(ctx, a, b, 1, 2)
+    assert res["status"] == "scored"
+    # A wins more holes, gets the 5.0 points for holes match
+    assert res["a"]["IndividualPts"] == 5.0
+    assert res["b"]["IndividualPts"] == 0.0
+
+def test_stableford_points_other_matrix():
+    matrix = {
+        "DEagle": 8, "Eagle": 5, "Birdie": 2, "Par": 0, "Bogie": -1, "Double": -3, "Triple": -3
+    }
+    net_or_gross = [3, 4, 5, 6, 3, 4, 0, 10, 8]
+    pars =         [4, 4, 4, 4, 3, 3, 3, 4,  5]
+    # diffs: -1, 0, 1, 2, 0, 1, None, 6, 3
+    # pts: 2, 0, -1, -3, 0, -1, 0, -3, -3
+    assert me.stableford_points(net_or_gross, pars, matrix) == -9
+
+    # Check eagle and double eagle
+    matrix2 = {
+        "DEagle": 10, "Eagle": 5, "Birdie": 2, "Par": 0, "Bogie": -1, "Double": -3, "Triple": -5
+    }
+    net2 = [2, 3, 7]
+    pars2 = [5, 5, 4]
+    # diffs: -3 (DEagle), -2 (Eagle), 3 (Triple)
+    # pts: 10 + 5 + -5 = 10
+    assert me.stableford_points(net2, pars2, matrix2) == 10
+
+def test_rules_summary_other_branches():
+    ctx = {
+        "scoring_mode": 4,
+        "scoring_mode_name": "nines_plus_match",
+        "adjust_mode": 3,
+        "adjust_mode_name": "usga_esc",
+        "stableford": {},
+        "stableford_source": "default",
+        "divisions": ["A"],
+        "num_man_teams": 2,
+        "league": {
+            "FirstTeeTime": "05:30 PM",
+            "MinsBetweenGroups": 10,
+            "SubPercent": 100
+        },
+        "rules": {
+            "IndPtsNet": 1.0,
+            "IndPtsAct": 2.0,
+            "IndPtsNetMatch": 0.0,
+            "IndPtsActMatch": 2.0,
+            "IndPtsHolesMatch": 3.0,
+            "IndPtsNetField": 4.0,
+            "IndNetFieldDiff": 0.5,
+            "TeamPtsNetMatch": 0.0,
+            "TeamPtsHolesMatch": 0.0,
+            "PlayerForfeit": 0.0,
+        }
+    }
+    summary = me.rules_summary(ctx)
+    assert summary["scoring_mode"] == 4
+    assert "1 pt per nine (low net), 3 pts for the 18-hole net holes-won match" in summary["human_rules"]
+    assert "Field points 4 / -0.5 per place on net" in summary["human_rules"]
+
+def test_rules_summary_more_branches():
+    ctx = {
+        "scoring_mode": 1,
+        "scoring_mode_name": "stroke_play_field",
+        "adjust_mode": 3,
+        "adjust_mode_name": "usga_esc",
+        "stableford": {},
+        "stableford_source": "default",
+        "divisions": ["A"],
+        "num_man_teams": 2,
+        "league": {
+            "FirstTeeTime": "05:30 PM",
+            "MinsBetweenGroups": 10,
+            "SubPercent": 100
+        },
+        "rules": {
+            "IndPtsNet": 0.0,
+            "IndPtsAct": 2.0,
+            "IndPtsNetMatch": 0.0,
+            "IndPtsActMatch": 3.0,
+            "IndPtsHolesMatch": 0.0,
+            "IndPtsNetField": 0.0,
+            "IndNetFieldDiff": 0.0,
+            "TeamPtsNetMatch": 0.0,
+            "TeamPtsHolesMatch": 0.0,
+            "PlayerForfeit": 0.0,
+        }
+    }
+    summary = me.rules_summary(ctx)
+    assert summary["scoring_mode"] == 1
+    assert "2 pts per gross hole won (ties split)" in summary["human_rules"]
+    assert "3 pts for low gross round" in summary["human_rules"]
+
+def test_compute_next_handicap():
+    assert me.compute_next_handicap(5.0, 1.0) == 4.0
+    assert me.compute_next_handicap(5.0, -1.0) == 6.0
+    assert me.compute_next_handicap(5.0, 0.0) == 5.0
+
+def test_score_ecgc_2person_match_unplayed_sub():
+    team_a = {
+        "team_id": 1,
+        "team_name": "Team A",
+        "player1": {"id": 1, "name": "P1", "handicap": 5.0, "unplayed": True},
+        "player2": {"id": 2, "name": "P2", "handicap": 5.0, "is_sub": True, "gross_scores": [4,4,4,4,4,4,4,4,4]}
+    }
+    team_b = {
+        "team_id": 2,
+        "team_name": "Team B",
+        "player1": {"id": 3, "name": "P3", "handicap": 5.0, "gross_scores": [5,5,5,5,5,5,5,5,5]},
+        "player2": {"id": 4, "name": "P4", "handicap": 5.0, "gross_scores": [5,5,5,5,5,5,5,5,5]}
+    }
+    rules = {
+        "points_per_hole_win": 1.0,
+        "points_per_hole_tie": 0.5,
+        "net_bonus_below_max": 35,
+        "net_bonus_pts": 1.0,
+        "net_even_min": 36,
+        "net_even_max": 36,
+        "net_even_pts": 0.0,
+        "net_penalty_above_min": 37,
+        "net_penalty_pts": -1.0,
+    }
+    pars = [4]*9
+    ranks = [1,2,3,4,5,6,7,8,9]
+    res = me.score_ecgc_2person_match(team_a, team_b, ranks, pars, rules)
+    assert res["status"] == "scored"
+    assert res["team_a"]["player1"]["unplayed"] is True
+    assert res["team_a"]["player1"]["net_total"] == -36
+    assert res["team_a"]["player1"]["pt"] == 0.0
+
+def test_score_ecgc_2person_match_tie():
+    team_a = {
+        "team_id": 1,
+        "team_name": "Team A",
+        "player1": {"id": 1, "name": "P1", "handicap": 0.0, "gross_scores": [4]*9},
+        "player2": {"id": 2, "name": "P2", "handicap": 0.0, "gross_scores": [4]*9}
+    }
+    team_b = {
+        "team_id": 2,
+        "team_name": "Team B",
+        "player1": {"id": 3, "name": "P3", "handicap": 0.0, "gross_scores": [4]*9},
+        "player2": {"id": 4, "name": "P4", "handicap": 0.0, "gross_scores": [4]*9}
+    }
+    rules = {
+        "points_per_hole_win": 1.0,
+        "points_per_hole_tie": 0.5,
+        "net_bonus_below_max": 35,
+        "net_bonus_pts": 1.0,
+        "net_even_min": 36,
+        "net_even_max": 36,
+        "net_even_pts": 0.0,
+        "net_penalty_above_min": 37,
+        "net_penalty_pts": -1.0,
+    }
+    pars = [4]*9
+    ranks = [1,2,3,4,5,6,7,8,9]
+    res = me.score_ecgc_2person_match(team_a, team_b, ranks, pars, rules)
+    assert res["match_winner"] == "tie"
+    assert res["team_a"]["total_points"] == 4.5
+    assert res["team_b"]["total_points"] == 4.5
+
+def test_strokes_per_hole_negative_handicap():
+    ranks = [9, 1, 8, 2, 7, 3, 6, 4, 5]
+    # For a +2 handicap, we give strokes back on the easiest holes (ranks 9 and 8)
+    assert me.strokes_per_hole(-2.0, ranks, 9) == [-1, 0, -1, 0, 0, 0, 0, 0, 0]
+    # For a +12 handicap, we give back 1 on all, and an extra 1 on easiest 3 (ranks 9, 8, 7)
+    assert me.strokes_per_hole(-12.0, ranks, 9) == [-2, -1, -2, -1, -2, -1, -1, -1, -1]
+
+def test_score_ecgc_2person_match_negative_diff():
+    team_a = {
+        "team_id": 1,
+        "team_name": "Team A",
+        "player1": {"id": 1, "name": "P1", "handicap": 0.0, "gross_scores": [4]*9},
+        "player2": {"id": 2, "name": "P2", "handicap": 0.0, "gross_scores": [4]*9}
+    }
+    team_b = {
+        "team_id": 2,
+        "team_name": "Team B",
+        "player1": {"id": 3, "name": "P3", "handicap": 5.0, "gross_scores": [5]*9},
+        "player2": {"id": 4, "name": "P4", "handicap": 5.0, "gross_scores": [5]*9}
+    }
+    rules = {
+        "points_per_hole_win": 1.0,
+        "points_per_hole_tie": 0.5,
+        "net_bonus_below_max": 35,
+        "net_bonus_pts": 1.0,
+        "net_even_min": 36,
+        "net_even_max": 36,
+        "net_even_pts": 0.0,
+        "net_penalty_above_min": 37,
+        "net_penalty_pts": -1.0,
+    }
+    pars = [4]*9
+    ranks = [1,2,3,4,5,6,7,8,9]
+    res = me.score_ecgc_2person_match(team_a, team_b, ranks, pars, rules)
+    assert res["match_winner"] == "team_a"
+    assert res["team_b"]["diff_strokes"] == 10

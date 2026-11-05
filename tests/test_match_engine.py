@@ -487,3 +487,256 @@ def test_score_ecgc_2person_match_negative_diff():
     res = me.score_ecgc_2person_match(team_a, team_b, ranks, pars, rules)
     assert res["match_winner"] == "team_a"
     assert res["team_b"]["diff_strokes"] == 10
+
+
+
+def test_scheduled_nine():
+    import sqlite3
+
+    from app import match_engine as me
+
+    conn = sqlite3.connect(":memory:")
+
+    # Default is front
+    assert me.scheduled_nine(conn, 1, 1) == "front"
+    # SchedNine table exists, but no rows
+    conn.execute('CREATE TABLE "1SchedNine" ("WeekNum" INTEGER, "Match1" INTEGER)')
+    assert me.scheduled_nine(conn, 1, 1) == "front"
+    # SchedNine has row, match1 = 2 (back)
+    conn.execute('INSERT INTO "1SchedNine" ("WeekNum", "Match1") VALUES (1, 2)')
+    assert me.scheduled_nine(conn, 1, 1) == "back"
+    # SchedNine has row, match1 = 1 (front)
+    conn.execute('UPDATE "1SchedNine" SET "Match1" = 1 WHERE "WeekNum" = 1')
+    assert me.scheduled_nine(conn, 1, 1) == "front"
+
+
+def test_matchsetup_pairs():
+    import sqlite3
+
+    from app import match_engine as me
+
+    conn = sqlite3.connect(":memory:")
+
+    assert me.matchsetup_pairs(conn, 1, 1) == []
+
+    conn.execute('CREATE TABLE "1MatchSetup" ("WeekNum" INTEGER, "ID1" INTEGER, "ID2" INTEGER, "ID3" INTEGER, "ID4" INTEGER, "ID5" INTEGER, "ID6" INTEGER)')
+    assert me.matchsetup_pairs(conn, 1, 1) == []
+
+    # Foursome [1, 2, 3, 4] -> (1, 3), (2, 4). Twosome [5, 6] -> (5, 6)
+    conn.execute('INSERT INTO "1MatchSetup" ("WeekNum", "ID1", "ID2", "ID3", "ID4", "ID5", "ID6") VALUES (1, 1, 2, 3, 4, 5, 6)')
+    assert me.matchsetup_pairs(conn, 1, 1) == [(1, 3), (2, 4), (5, 6)]
+
+
+def test_resolve_pairs():
+    import sqlite3
+
+    from app import match_engine as me
+
+    conn = sqlite3.connect(":memory:")
+
+    ctx = {"players": [{"PlayerID": 1, "Handicap": 10.0}, {"PlayerID": 2, "Handicap": 12.0}], "num_man_teams": 1}
+    entries = {
+        1: {"OpponentID": 2},
+        2: {"OpponentID": 1},
+    }
+    pairs, source = me.resolve_pairs(ctx, conn, 1, 1, entries)
+    assert source == "PlayerResults.OpponentID"
+    assert pairs == [(1, 2)] or pairs == [(2, 1)]
+
+    entries2 = {
+        1: {"OpponentID": 0},
+        2: {"OpponentID": 0},
+    }
+    pairs, source = me.resolve_pairs(ctx, conn, 1, 1, entries2)
+    assert source == "auto_handicap_order"
+    assert pairs == [(1, 2)]
+
+
+def test_load_week_entries():
+    import sqlite3
+
+    from app import match_engine as me
+
+    conn = sqlite3.connect(":memory:")
+
+    # mock context
+    ctx = {
+        "num_holes": 18,
+        "players": [{"PlayerID": 1, "Handicap": 10.0, "PlayerFirst": "John", "PlayerLast": "Doe"}],
+        "league": {"SubPercent": 100},
+        "pars18": [4]*18,
+        "caps18": list(range(1, 19)),
+        "adjust_mode": 1,
+        "stableford": {}
+    }
+    # No tables
+    assert me.load_week_entries(conn, ctx, 1, 1) == {}
+
+    conn.execute('CREATE TABLE "1PlayerResults" ("WeekNum" INTEGER, "PlayerID" INTEGER, "1" INTEGER, "Sub" INTEGER, "Forfeit" INTEGER)')
+    conn.execute('INSERT INTO "1PlayerResults" ("WeekNum", "PlayerID", "1", "Sub", "Forfeit") VALUES (1, 1, 4, 1, 0)')
+
+    conn.execute('CREATE TABLE "1SubResults" ("WeekNum" INTEGER, "PlayerID" INTEGER, "SubID" INTEGER, "1" INTEGER, "SubCap" REAL)')
+    conn.execute('INSERT INTO "1SubResults" ("WeekNum", "PlayerID", "SubID", "1", "SubCap") VALUES (1, 1, 99, 3, 5.0)')
+
+    conn.execute('CREATE TABLE "1Subs" ("SubID" INTEGER, "SubFirst" TEXT, "SubLast" TEXT, "SubHandicap" REAL)')
+    conn.execute('INSERT INTO "1Subs" ("SubID", "SubFirst", "SubLast", "SubHandicap") VALUES (99, "Sub", "Bob", 15.0)')
+
+    entries = me.load_week_entries(conn, ctx, 1, 1)
+    assert 1 in entries
+    assert entries[1]["is_sub"] is True
+    assert entries[1]["sub_name"] == "Sub Bob"
+    assert entries[1]["Handicap"] == 5.0 # uses subcap
+    assert entries[1]["holes"][0] == 3 # uses sub result
+
+
+def test_load_week_entries_back_and_both():
+    import sqlite3
+
+    from app import match_engine as me
+    conn = sqlite3.connect(":memory:")
+
+    ctx = {
+        "num_holes": 18,
+        "players": [
+            {"PlayerID": 1, "Handicap": 10.0, "PlayerFirst": "A", "PlayerLast": "B"},
+            {"PlayerID": 2, "Handicap": 10.0, "PlayerFirst": "C", "PlayerLast": "D"}
+        ],
+        "league": {"SubPercent": 100},
+        "pars18": [4]*18,
+        "caps18": list(range(1, 19)),
+        "adjust_mode": 1,
+        "stableford": {}
+    }
+
+    conn.execute('CREATE TABLE "1PlayerResults" ("WeekNum" INTEGER, "PlayerID" INTEGER, "1" INTEGER, "10" INTEGER, "Sub" INTEGER, "Forfeit" INTEGER)')
+    # Player 1 played back nine only (hole 10 = 4)
+    conn.execute('INSERT INTO "1PlayerResults" ("WeekNum", "PlayerID", "1", "10", "Sub", "Forfeit") VALUES (1, 1, 0, 4, 0, 0)')
+    # Player 2 played both (hole 1 = 4, hole 10 = 4)
+    conn.execute('INSERT INTO "1PlayerResults" ("WeekNum", "PlayerID", "1", "10", "Sub", "Forfeit") VALUES (1, 2, 4, 4, 0, 0)')
+
+    entries = me.load_week_entries(conn, ctx, 1, 1)
+    assert entries[1]["nine"] == "both"
+    assert entries[2]["nine"] == "both"
+
+
+def test_load_week_entries_front():
+    import sqlite3
+
+    from app import match_engine as me
+    conn = sqlite3.connect(":memory:")
+
+    ctx = {
+        "num_holes": 9,
+        "players": [
+            {"PlayerID": 1, "Handicap": 10.0, "PlayerFirst": "A", "PlayerLast": "B"},
+        ],
+        "league": {"SubPercent": 100},
+        "pars18": [4]*18,
+        "caps18": list(range(1, 19)),
+        "adjust_mode": 1,
+        "stableford": {}
+    }
+
+    conn.execute('CREATE TABLE "1PlayerResults" ("WeekNum" INTEGER, "PlayerID" INTEGER, "1" INTEGER, "Sub" INTEGER, "Forfeit" INTEGER)')
+    conn.execute('INSERT INTO "1PlayerResults" ("WeekNum", "PlayerID", "1", "Sub", "Forfeit") VALUES (1, 1, 4, 0, 0)')
+
+    entries = me.load_week_entries(conn, ctx, 1, 1)
+    assert entries[1]["nine"] == "front"
+
+
+def test_auto_pairs():
+    import sqlite3
+
+    from app import match_engine as me
+
+    conn = sqlite3.connect(":memory:")
+
+    ctx = {
+        "num_man_teams": 2,
+        "players": [
+            {"PlayerID": 1, "TeamID": 1, "Handicap": 10.0},
+            {"PlayerID": 2, "TeamID": 1, "Handicap": 12.0},
+            {"PlayerID": 3, "TeamID": 2, "Handicap": 10.0},
+            {"PlayerID": 4, "TeamID": 2, "Handicap": 12.0}
+        ]
+    }
+
+    conn.execute('CREATE TABLE "1Schedule" ("WeekNum" INTEGER, "Match1Team1" INTEGER, "Match1Team2" INTEGER)')
+    conn.execute('INSERT INTO "1Schedule" ("WeekNum", "Match1Team1", "Match1Team2") VALUES (1, 1, 2)')
+
+    pairs = me.auto_pairs(ctx, conn, 1, 1, {})
+    assert pairs == [(1, 3), (2, 4)]
+
+    ctx["num_man_teams"] = 1
+    pairs = me.auto_pairs(ctx, conn, 1, 1, {})
+    assert pairs == [(1, 3), (2, 4)]
+
+
+def test_compute_week():
+    import sqlite3
+
+    from app import match_engine as me
+    conn = sqlite3.connect(":memory:")
+
+    conn.execute('CREATE TABLE "Leagues" ("LeagueID" INTEGER, "LeagueName" TEXT, "LeagueHoles" INTEGER, "SubPercent" INTEGER, "NumManTeams" INTEGER)')
+    conn.execute('INSERT INTO "Leagues" ("LeagueID", "LeagueName", "LeagueHoles", "SubPercent", "NumManTeams") VALUES (1, "Test League", 18, 100, 2)')
+
+    conn.execute('CREATE TABLE "LeagueRules" ("LeagueID" INTEGER, "IndPtsNet" REAL)')
+    conn.execute('INSERT INTO "LeagueRules" ("LeagueID", "IndPtsNet") VALUES (1, 1.0)')
+
+    conn.execute('CREATE TABLE "Courses" ("CourseID" INTEGER, "CourseName" TEXT)')
+    conn.execute('INSERT INTO "Courses" ("CourseID", "CourseName") VALUES (1, "Test Course")')
+
+    conn.execute('CREATE TABLE "1Players" ("PlayerID" INTEGER, "PlayerFirst" TEXT, "PlayerLast" TEXT, "Handicap" REAL, "TeamID" INTEGER, "Division" TEXT)')
+    conn.execute('INSERT INTO "1Players" ("PlayerID", "PlayerFirst", "PlayerLast", "Handicap", "TeamID", "Division") VALUES (1, "John", "Doe", 10.0, 1, "A")')
+    conn.execute('INSERT INTO "1Players" ("PlayerID", "PlayerFirst", "PlayerLast", "Handicap", "TeamID", "Division") VALUES (2, "Jane", "Doe", 12.0, 2, "A")')
+
+    conn.execute('CREATE TABLE "1Teams" ("TeamID" INTEGER, "TeamName" TEXT)')
+    conn.execute('INSERT INTO "1Teams" ("TeamID", "TeamName") VALUES (1, "Team 1")')
+    conn.execute('INSERT INTO "1Teams" ("TeamID", "TeamName") VALUES (2, "Team 2")')
+
+    conn.execute('CREATE TABLE "CourseYards" ("CourseID" INTEGER)')
+    conn.execute('CREATE TABLE "CourseHandicap" ("CourseID" INTEGER)')
+    conn.execute('CREATE TABLE "CoursePar" ("CourseID" INTEGER)')
+    conn.execute('CREATE TABLE "CourseHoles" ("CourseID" INTEGER, "HoleNumber" INTEGER, "Par" INTEGER, "HandicapRank" INTEGER)')
+    for i in range(1, 19):
+        conn.execute('INSERT INTO "CourseHoles" ("CourseID", "HoleNumber", "Par", "HandicapRank") VALUES (1, ?, 4, ?)', (i, i))
+
+    conn.execute('CREATE TABLE "1Schedule" ("WeekNum" INTEGER, "Match1Team1" INTEGER, "Match1Team2" INTEGER)')
+    conn.execute('INSERT INTO "1Schedule" ("WeekNum", "Match1Team1", "Match1Team2") VALUES (1, 1, 2)')
+
+    # Sub tables
+    conn.execute('CREATE TABLE "1Subs" ("SubID" INTEGER, "SubFirst" TEXT, "SubLast" TEXT, "SubHandicap" REAL)')
+    conn.execute('INSERT INTO "1Subs" ("SubID", "SubFirst", "SubLast", "SubHandicap") VALUES (99, "Sub", "Bob", 15.0)')
+
+    conn.execute('CREATE TABLE "1SubResults" ("WeekNum" INTEGER, "PlayerID" INTEGER, "SubID" INTEGER, ' + ', '.join([f'"{i}" INTEGER' for i in range(1, 19)]) + ', "SubCap" REAL)')
+    conn.execute('INSERT INTO "1SubResults" ("WeekNum", "PlayerID", "SubID", ' + ', '.join([f'"{i}"' for i in range(1, 19)]) + ', "SubCap") VALUES (1, 1, 99, ' + ', '.join(['3' for _ in range(18)]) + ', 5.0)')
+
+    conn.execute('CREATE TABLE "1PlayerResults" ("WeekNum" INTEGER, "PlayerID" INTEGER, "Sub" INTEGER, "Forfeit" INTEGER, ' + ', '.join([f'"{i}" INTEGER' for i in range(1, 19)]) + ')')
+    # Player 1 is a sub
+    conn.execute('INSERT INTO "1PlayerResults" ("WeekNum", "PlayerID", "Sub", "Forfeit", ' + ', '.join([f'"{i}"' for i in range(1, 19)]) + ') VALUES (1, 1, 1, 0, ' + ', '.join(['0' for _ in range(18)]) + ')')
+    # Player 2 is normal
+    conn.execute('INSERT INTO "1PlayerResults" ("WeekNum", "PlayerID", "Sub", "Forfeit", ' + ', '.join([f'"{i}"' for i in range(1, 19)]) + ') VALUES (1, 2, 0, 0, ' + ', '.join(['4' for _ in range(18)]) + ')')
+
+    res = me.compute_week(conn, 1, 1)
+
+    assert "matches" in res
+    assert "entries" in res
+
+    matches = res["matches"]
+    assert len(matches) == 1
+    assert matches[0]["a"]["PlayerID"] == 1
+    assert matches[0]["b"]["PlayerID"] == 2
+
+    entries = res["entries"]
+    assert entries[1]["is_sub"] is True
+    assert entries[1]["sub_name"] == "Sub Bob"
+    assert entries[1]["Handicap"] == 5.0
+
+    # Also test team_results
+    assert "team_results" in res
+    assert len(res["team_results"]) == 2
+    assert res["team_results"][0]["TeamID"] == 1
+    assert res["team_results"][0]["players_played"] == 1
+    assert res["team_results"][1]["TeamID"] == 2
+    assert res["team_results"][1]["players_played"] == 1

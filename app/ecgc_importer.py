@@ -360,11 +360,42 @@ def import_ecgc_data(
     ensure_normalized_ecgc_tables(gls_conn)
 
     # Step 3: Connect to ecgc.sqlite and copy archive data
-    src_conn = sqlite3.connect(str(ecgc_sqlite_path))
-    src_conn.row_factory = sqlite3.Row
+    from contextlib import closing
+    with closing(sqlite3.connect(str(ecgc_sqlite_path))) as src_conn:
+        src_conn.row_factory = sqlite3.Row
 
-    # Copy ecgc_players (128 canonical players)
-    players_rows = src_conn.execute("SELECT * FROM league_players").fetchall()
+        # Copy ecgc_players (128 canonical players)
+        players_rows = src_conn.execute("SELECT * FROM league_players").fetchall()
+
+        # Copy ecgc_teams (244 teams)
+        teams_rows = src_conn.execute("SELECT * FROM league_teams").fetchall()
+
+        # Copy ecgc_team_members (472 explicit roster memberships + 161 round/substitute appearances = 633 total)
+        members_rows = src_conn.execute("SELECT * FROM league_team_members").fetchall()
+
+        extra_rows = src_conn.execute("""
+            SELECT DISTINCT team_id, player_id, season_year, league_slug,
+                   CASE WHEN team_name LIKE '%SUB%' THEN 'substitute' ELSE 'sub_or_alt' END AS role
+            FROM league_rounds
+            WHERE team_id IS NOT NULL AND player_id IS NOT NULL
+            ORDER BY season_year, league_slug, team_id, player_id
+        """).fetchall()
+
+        # Copy ecgc_events (206 events)
+        events_rows = src_conn.execute("SELECT * FROM league_events").fetchall()
+
+        # Copy ecgc_matches (1,611 matches)
+        matches_rows = src_conn.execute("SELECT * FROM league_matches").fetchall()
+
+        # Copy ecgc_rounds (5,521 rounds)
+        rounds_rows = src_conn.execute("SELECT * FROM league_rounds").fetchall()
+
+        # Copy ecgc_hole_scores (49,689 hole scores)
+        hole_rows = src_conn.execute("SELECT * FROM league_hole_scores").fetchall()
+
+        # Copy ecgc_standings (698 standings)
+        standings_rows = src_conn.execute("SELECT * FROM league_standings").fetchall()
+
     gls_conn.execute("DELETE FROM ecgc_players")
     gls_conn.executemany(
         """
@@ -392,7 +423,6 @@ def import_ecgc_data(
     }
 
     # Copy ecgc_teams (244 teams)
-    teams_rows = src_conn.execute("SELECT * FROM league_teams").fetchall()
     gls_conn.execute("DELETE FROM ecgc_teams")
     gls_conn.executemany(
         """
@@ -416,7 +446,6 @@ def import_ecgc_data(
     )
 
     # Copy ecgc_team_members (472 explicit roster memberships + 161 round/substitute appearances = 633 total)
-    members_rows = src_conn.execute("SELECT * FROM league_team_members").fetchall()
     gls_conn.execute("DELETE FROM ecgc_team_members")
     seen_tp = set()
     member_tuples = []
@@ -427,13 +456,6 @@ def import_ecgc_data(
         seen_tp.add((int(r["team_id"]), int(r["player_id"])))
         member_tuples.append((mid, r["team_id"], r["player_id"], r["season_year"], r["league_slug"], r["role"] or "member"))
 
-    extra_rows = src_conn.execute("""
-        SELECT DISTINCT team_id, player_id, season_year, league_slug,
-               CASE WHEN team_name LIKE '%SUB%' THEN 'substitute' ELSE 'sub_or_alt' END AS role
-        FROM league_rounds
-        WHERE team_id IS NOT NULL AND player_id IS NOT NULL
-        ORDER BY season_year, league_slug, team_id, player_id
-    """).fetchall()
     for r in extra_rows:
         key = (int(r["team_id"]), int(r["player_id"]))
         if key not in seen_tp:
@@ -450,7 +472,6 @@ def import_ecgc_data(
     )
 
     # Copy ecgc_events (206 events)
-    events_rows = src_conn.execute("SELECT * FROM league_events").fetchall()
     gls_conn.execute("DELETE FROM ecgc_events")
     gls_conn.executemany(
         """
@@ -477,7 +498,6 @@ def import_ecgc_data(
     )
 
     # Copy ecgc_matches (1,611 matches)
-    matches_rows = src_conn.execute("SELECT * FROM league_matches").fetchall()
     gls_conn.execute("DELETE FROM ecgc_matches")
     gls_conn.executemany(
         """
@@ -506,7 +526,6 @@ def import_ecgc_data(
     )
 
     # Copy ecgc_rounds (5,521 rounds)
-    rounds_rows = src_conn.execute("SELECT * FROM league_rounds").fetchall()
     gls_conn.execute("DELETE FROM ecgc_rounds")
     gls_conn.executemany(
         """
@@ -536,7 +555,6 @@ def import_ecgc_data(
     )
 
     # Copy ecgc_hole_scores (49,689 hole scores)
-    hole_rows = src_conn.execute("SELECT * FROM league_hole_scores").fetchall()
     gls_conn.execute("DELETE FROM ecgc_hole_scores")
     gls_conn.executemany(
         """
@@ -558,7 +576,6 @@ def import_ecgc_data(
     )
 
     # Copy ecgc_standings (698 standings)
-    standings_rows = src_conn.execute("SELECT * FROM league_standings").fetchall()
     gls_conn.execute("DELETE FROM ecgc_standings")
     gls_conn.executemany(
         """

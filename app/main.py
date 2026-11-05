@@ -113,12 +113,19 @@ class ScheduleGenReq(BaseModel):
 class RolloverReq(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    source_league_id: int = Field(default=20261)
-    target_year: int = Field(default=2027, ge=2018, le=2100)
+    source_league_id: int | None = None
+    target_year: int | None = None
     division: str | None = None
-    weeks: int | None = Field(default=None, ge=1, le=52)
+    weeks: int | None = None
     start_date: str | None = None
     league_name: str | None = None
+
+    @field_validator("source_league_id", "target_year", "weeks", "division", "start_date", "league_name", mode="before")
+    @classmethod
+    def _map_empty(cls, v: Any) -> Any:
+        if v in (None, "", 0):
+            return None
+        return v
 
 
 def _validate_ecgc_rules(req: dict[str, Any]) -> None:
@@ -1049,8 +1056,10 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
 
     @app.post("/api/ecgc/seasons/rollover")
     def rollover_ecgc_season(req: RolloverReq) -> dict[str, Any]:
-        source_lid = req.source_league_id
-        target_year = req.target_year
+        source_lid = req.source_league_id or 20261
+        target_year = req.target_year or 2027
+        if target_year < 2018 or target_year > 2100:
+            raise HTTPException(422, detail="target_year must be between 2018 and 2100")
         division = (req.division or ("womens" if source_lid % 10 == 2 else "mens")).lower()
         if division not in ("mens", "womens"):
             raise HTTPException(422, detail="division must be mens or womens")

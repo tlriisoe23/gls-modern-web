@@ -15,7 +15,7 @@ Replaces the 1990s 32-bit Visual Basic 6.0 executable (`Gls90.exe` + `SPR32X60.o
   - Computes 9-hole 2-person match points (`1.0` win / `0.5` tie, `9.0` max) plus per-player Net vs. Par 36 `PT` bonus/penalty (`+1` / `0` / `-1`) and automatic weekly handicap progression (`HCP_next = clamp(HCP_prev - PT, 0, 36)`).
 - **Analytics, Pairing Builder, Season Rollover & Printable Clubhouse Sheet**:
   - Includes `GET /api/ecgc/course-analytics` (Hole 1–9 toughness & player career matrix), `POST /api/ecgc/leagues/{id}/generate-week` (round-robin pairing builder), `POST /api/ecgc/leagues/rollover` (new season rollover wizard), and a 1-page `@media print` Clubhouse Sheet.
-- **Verification**: `PYTHONPATH=. pytest -q tests/` passes **`55 / 55` tests** (`tests/test_ecgc_9hole_default.py`, `tests/test_ecgc_three_squad_overhaul.py`, and full regression suite).
+- **Verification**: `PYTHONPATH=. pytest -q tests/` passes **`234 / 234` tests** (`tests/test_ecgc_rules.py`, `tests/test_ecgc_rules_and_import.py`, and full regression suite).
 
 ---
 
@@ -45,7 +45,7 @@ Replaces the 1990s 32-bit Visual Basic 6.0 executable (`Gls90.exe` + `SPR32X60.o
 ## 🚀 Quickstart & Verification
 
 ```bash
-pip install fastapi uvicorn httpx python-multipart pytest
+pip install mypy fastapi uvicorn httpx python-multipart pytest pytest-cov ruff
 PYTHONPATH=. pytest -q tests/          # hermetic: runs on a temp copy of data/gls9.db
 uvicorn app.main:app --host 0.0.0.0 --port 8104
 node tests/spa_smoke.mjs               # optional CHROMIUM_PATH=/usr/bin/chromium
@@ -56,7 +56,10 @@ Test layout:
 | File | Covers |
 | --- | --- |
 | `tests/test_gls9.py` | End-to-end API flow (plus the original `.mdb` migration flow when `/tmp/GLS9` exists) |
-| `tests/test_engine_unit.py` | Stroke allocation, ESC, Stableford, match play, field points, schedule generation |
+| `tests/test_engine_unit.py` | Stroke allocation, ESC, Stableford, field points, schedule generation |
+| `tests/test_match_engine.py` | Head-to-head match play calculations and point distribution |
+| `tests/test_ecgc_rules.py` | ECGC custom league rules, PT calculation, and seasonal handicaps |
+| `tests/test_ecgc_rules_and_import.py` | ECGC import processing, integration, and historical season boundaries |
 | `tests/test_api_hardening.py` | Input validation, 404/422 handling, upload limits, security headers, connection hygiene |
 | `tests/test_regressions.py` | One test per edge-case bug fixed in the FSA-15 audit |
 | `tests/test_spa_browser.py` + `spa_a11y_xss.mjs` | Headless-browser XSS and WCAG 2.2 AA checks (skipped without Node + Playwright). Set `AXE_CORE_PATH=.../axe-core/axe.min.js` to add a full axe-core scan of every tab in all 5 themes. |

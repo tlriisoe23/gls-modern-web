@@ -152,6 +152,22 @@ try {
   const escapedExpanded = await caddy.getAttribute("aria-expanded");
   record("A11y 2.1.1: Escape closes caddy and focuses toggle button", caddyHidden && toggleFocused && escapedExpanded === "false", `${caddyHidden} ${toggleFocused} ${escapedExpanded}`);
 
+  // A11y 2.1.1: Escape closes Admin Tools drawer and focuses summary
+  await page.evaluate(() => {
+    const drawer = document.getElementById("adminToolsDrawer");
+    if (drawer) drawer.open = true;
+  });
+  await page.keyboard.press("Escape");
+  const drawerClosed = await page.evaluate(() => {
+    const drawer = document.getElementById("adminToolsDrawer");
+    return drawer && !drawer.open;
+  });
+  const summaryFocused = await page.evaluate(() => {
+    const active = document.activeElement;
+    return active && active.tagName.toLowerCase() === "summary" && active.closest("#adminToolsDrawer");
+  });
+  record("A11y 2.1.1: Escape closes Admin Tools drawer and focuses summary", drawerClosed && summaryFocused, `${drawerClosed} ${summaryFocused}`);
+
   // Every visible form control & button has an accessible name.
   for (const tab of ["standings", "scorecard", "roster", "schedule", "courses", "explorer"]) {
     await page.click(`#tabbtn-${tab}`);

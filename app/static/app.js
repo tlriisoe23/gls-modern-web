@@ -421,6 +421,12 @@ function bindStaticHandlers() {
         caddyBtn.setAttribute("aria-expanded", "false");
         caddyBtn.focus();
       }
+      const adminDrawer = document.getElementById("adminToolsDrawer");
+      if (adminDrawer && adminDrawer.open) {
+        adminDrawer.open = false;
+        const summary = adminDrawer.querySelector("summary");
+        if (summary) summary.focus();
+      }
       closeBreakdownModal();
       closeCareerDrawer();
       closeClubhouseSheetModal();

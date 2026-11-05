@@ -15,7 +15,7 @@ from datetime import date
 from pathlib import Path
 from typing import Annotated, Any, Awaitable, Callable, Generator
 
-from fastapi import FastAPI, File, HTTPException, Path as PathParam, Request, Response, UploadFile
+from fastapi import FastAPI, File, HTTPException, Path as PathParam, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -54,12 +54,6 @@ def _clean_text(value: str, *, field: str, max_len: int, required: bool) -> str:
     return v
 
 
-def _finite(v: float, field: str) -> float:
-    if not math.isfinite(v):
-        raise ValueError(f"{field} must be a finite number")
-    return v
-
-
 class ScoreSaveReq(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -68,14 +62,9 @@ class ScoreSaveReq(BaseModel):
     NumPutts: int = Field(default=0, ge=0, le=100)
     GreensInRegulation: int = Field(default=0, ge=0, le=18)
     NumFairwaysHit: int = Field(default=0, ge=0, le=18)
-    IndividualPts: float = Field(default=0.0, ge=-1000, le=1000)
+    IndividualPts: float = Field(default=0.0, ge=-1000, le=1000, allow_inf_nan=False)
     Blind40: bool = False
     Forfeit: int = Field(default=0, ge=0, le=1)
-
-    @field_validator("IndividualPts")
-    @classmethod
-    def _pts_finite(cls, v: float) -> float:
-        return _finite(v, "IndividualPts")
 
 
 class PlayerUpsertReq(BaseModel):
@@ -85,10 +74,10 @@ class PlayerUpsertReq(BaseModel):
     TeamID: int = Field(default=1, ge=1, le=999)
     PlayerFirst: str
     PlayerLast: str
-    Handicap: float = Field(default=0.0, ge=-10, le=54)
+    Handicap: float = Field(default=0.0, ge=-10, le=54, allow_inf_nan=False)
     Division: str | float | None = None
-    Points: float = Field(default=0.0, ge=-100_000, le=100_000)
-    Money: float = Field(default=0.0, ge=-1_000_000, le=1_000_000)
+    Points: float = Field(default=0.0, ge=-100_000, le=100_000, allow_inf_nan=False)
+    Money: float = Field(default=0.0, ge=-1_000_000, le=1_000_000, allow_inf_nan=False)
     EMail: str = ""
     HomePhone: str = ""
 
@@ -96,11 +85,6 @@ class PlayerUpsertReq(BaseModel):
     @classmethod
     def _names(cls, v: str, info: ValidationInfo) -> str:
         return _clean_text(v, field=info.field_name or "Unknown", max_len=40, required=True)
-
-    @field_validator("Handicap", "Points", "Money")
-    @classmethod
-    def _nums_finite(cls, v: float, info: ValidationInfo) -> float:
-        return _finite(v, info.field_name or "Unknown")
 
     @field_validator("EMail")
     @classmethod
@@ -1190,7 +1174,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
 
 
     @app.get("/api/ecgc/blind-40")
-    def get_blind_40_preview(handicap: float = 9.0, target_net: int = 40) -> dict[str, Any]:
+    def get_blind_40_preview(handicap: Annotated[float, Query(allow_inf_nan=False)] = 9.0, target_net: int = 40) -> dict[str, Any]:
         holes = golf_engine.compute_blind_40_scores(handicap, target_net=target_net)
         hcp_int = int(round(float(handicap)))
         return {

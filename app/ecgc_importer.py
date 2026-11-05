@@ -1047,6 +1047,8 @@ def populate_native_gls9_leagues(conn: sqlite3.Connection) -> None:
         conn.execute(f'DELETE FROM "{ms_tbl}"')
         conn.execute(f'DELETE FROM "{tt_tbl}"')
 
+        team_id_to_num = {r[0]: r[1] for r in conn.execute("SELECT id, team_number FROM ecgc_teams").fetchall()}
+
         # 4. Populate Teams from ecgc_teams & ecgc_standings
         t_rows = conn.execute(
             "SELECT * FROM ecgc_teams WHERE season_year=? AND league_slug=? ORDER BY team_number ASC",
@@ -1131,11 +1133,9 @@ def populate_native_gls9_leagues(conn: sqlite3.Connection) -> None:
             hcp = 0.0
             if last_round:
                 orig_tid = last_round[0]
-                t_row = conn.execute(
-                    "SELECT team_number FROM ecgc_teams WHERE id=?", (orig_tid,)
-                ).fetchone()
-                if t_row and t_row[0]:
-                    assigned_team = t_row[0]
+                t_num = team_id_to_num.get(orig_tid)
+                if t_num:
+                    assigned_team = t_num
                 hcp = float(last_round[1] or 0)
 
             # Calculate total PT points for player
@@ -1192,14 +1192,10 @@ def populate_native_gls9_leagues(conn: sqlite3.Connection) -> None:
             # Map up to 11 matches to team numbers
             match_cols: list[int | None] = []
             for m_item in m_list:
-                ta = conn.execute(
-                    "SELECT team_number FROM ecgc_teams WHERE id=?", (m_item[0],)
-                ).fetchone()
-                tb = conn.execute(
-                    "SELECT team_number FROM ecgc_teams WHERE id=?", (m_item[1],)
-                ).fetchone()
-                match_cols.append(ta[0] if ta and ta[0] else m_item[0])
-                match_cols.append(tb[0] if tb and tb[0] else m_item[1])
+                ta_num = team_id_to_num.get(m_item[0])
+                tb_num = team_id_to_num.get(m_item[1])
+                match_cols.append(ta_num if ta_num else m_item[0])
+                match_cols.append(tb_num if tb_num else m_item[1])
 
             # Pad to 22 slots (11 matches * 2 teams)
             while len(match_cols) < 22:
@@ -1288,15 +1284,11 @@ def populate_native_gls9_leagues(conn: sqlite3.Connection) -> None:
             tb_orig = mr[3]
             tb_pts = float(mr[4] or 0)
 
-            ta_num_row = conn.execute(
-                "SELECT team_number FROM ecgc_teams WHERE id=?", (ta_orig,)
-            ).fetchone()
-            tb_num_row = conn.execute(
-                "SELECT team_number FROM ecgc_teams WHERE id=?", (tb_orig,)
-            ).fetchone()
+            ta_num = team_id_to_num.get(ta_orig)
+            tb_num = team_id_to_num.get(tb_orig)
 
-            ta_num = ta_num_row[0] if ta_num_row and ta_num_row[0] else ta_orig
-            tb_num = tb_num_row[0] if tb_num_row and tb_num_row[0] else tb_orig
+            ta_num = ta_num if ta_num else ta_orig
+            tb_num = tb_num if tb_num else tb_orig
 
             if ta_num:
                 conn.execute(

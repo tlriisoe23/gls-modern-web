@@ -636,10 +636,11 @@ function bindStaticHandlers() {
     })
   );
 
-  document.getElementById("togglePairingsBuilderBtn")?.addEventListener("click", () => {
+  document.getElementById("togglePairingsBuilderBtn")?.addEventListener("click", (e) => {
     const box = document.getElementById("weekPairingsEditorBox");
     if (!box) return;
     box.classList.toggle("hidden");
+    e.currentTarget.setAttribute("aria-expanded", String(!box.classList.contains("hidden")));
     if (!box.classList.contains("hidden")) {
       populatePairingsBuilderWeek(Number(document.getElementById("peWeekNum")?.value || state.activeWeek || 1));
     }
@@ -674,8 +675,12 @@ function bindStaticHandlers() {
     })
   );
 
-  document.getElementById("toggleRolloverWizardBtn")?.addEventListener("click", () => {
-    document.getElementById("rolloverWizardBox")?.classList.toggle("hidden");
+  document.getElementById("toggleRolloverWizardBtn")?.addEventListener("click", (e) => {
+    const box = document.getElementById("rolloverWizardBox");
+    if (box) {
+      box.classList.toggle("hidden");
+      e.currentTarget.setAttribute("aria-expanded", String(!box.classList.contains("hidden")));
+    }
   });
 
   document.getElementById("runRolloverBtn")?.addEventListener(

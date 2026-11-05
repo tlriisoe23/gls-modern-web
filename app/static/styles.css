@@ -262,6 +262,18 @@ button:disabled,
   cursor: progress;
 }
 
+[aria-busy="true"]::after {
+  content: " ⏳";
+  content: " ⏳" / "";
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
 button.primary,
 .btn.primary {
   background: var(--accent);
@@ -597,6 +609,10 @@ abbr[title] {
     transition: none !important;
     animation: none !important;
     scroll-behavior: auto !important;
+  }
+
+  [aria-busy="true"]::after {
+    animation: none;
   }
 }
 

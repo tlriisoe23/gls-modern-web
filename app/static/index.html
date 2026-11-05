@@ -353,8 +353,8 @@
             <label for="schedStartInput">Start Date:</label>
             <input id="schedStartInput" type="date" value="2026-05-05" />
             <button id="genSchedBtn" type="button" class="primary">🔄 Auto-Generate Round-Robin</button>
-            <button id="togglePairingsBuilderBtn" type="button" class="gold">✏️ Edit Week Pairings</button>
-            <button id="toggleRolloverWizardBtn" type="button" class="btn small">🚀 New Season Rollover</button>
+            <button id="togglePairingsBuilderBtn" type="button" class="gold" aria-expanded="false" aria-controls="weekPairingsEditorBox">✏️ Edit Week Pairings</button>
+            <button id="toggleRolloverWizardBtn" type="button" class="btn small" aria-expanded="false" aria-controls="rolloverWizardBox">🚀 New Season Rollover</button>
           </div>
         </div>
         <div id="weekPairingsEditorBox" class="caddy-box hidden" role="region" aria-label="Weekly 2-Man Matchup Pairing Editor" style="margin-bottom:12px;">

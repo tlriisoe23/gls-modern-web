@@ -324,6 +324,28 @@ def test_corrupt_league_id_rows_are_skipped(client, db_path):
     assert r.status_code == 200
     assert {9, 10, 11}.issubset({x["LeagueID"] for x in r.json()["leagues"]})
 
+def test_rollover_edge_cases(client):
+    r = client.post("/api/ecgc/seasons/rollover", json={})
+    assert r.status_code == 200
+
+    r = client.post("/api/ecgc/seasons/rollover", json={"weeks": ""})
+    assert r.status_code == 200
+
+    r = client.post("/api/ecgc/seasons/rollover", json={"target_year": None})
+    assert r.status_code == 200
+
+    r = client.post("/api/ecgc/seasons/rollover", json={"weeks": 60})
+    assert r.status_code == 200
+    assert r.json().get("league", {}).get("weeks", 52) == 52
+
+    r = client.post("/api/ecgc/seasons/rollover", json={"target_year": "abc"})
+    assert r.status_code == 422
+
+    r = client.post("/api/ecgc/seasons/rollover", json={"target_year": 1999})
+    assert r.status_code == 422
+    assert "between 2018 and 2100" in r.text
+
+
 def test_mdb_migrator_closes_connection_on_subprocess_error(monkeypatch, db_path):
     from app import mdb_migrator
     from pathlib import Path

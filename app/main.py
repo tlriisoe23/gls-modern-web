@@ -110,6 +110,24 @@ class ScheduleGenReq(BaseModel):
     start_date: date = date(2026, 5, 5)
 
 
+class RolloverReq(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    source_league_id: int | None = None
+    target_year: int | None = None
+    division: str | None = None
+    weeks: int | None = None
+    start_date: str | None = None
+    league_name: str | None = None
+
+    @field_validator("source_league_id", "target_year", "weeks", "division", "start_date", "league_name", mode="before")
+    @classmethod
+    def _map_empty(cls, v: Any) -> Any:
+        if v in (None, "", 0):
+            return None
+        return v
+
+
 def _validate_ecgc_rules(req: dict[str, Any]) -> None:
     """Validate dynamic rule fields before conversion or SQLite binding."""
     integer_fields = {"holes_count", "net_bonus_enabled", "net_bonus_below_max", "net_even_min", "net_even_max", "net_penalty_above_min", "plus_handicaps_enabled", "unplayed_round_score"}
@@ -1037,20 +1055,20 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             return get_schedule(lid)
 
     @app.post("/api/ecgc/seasons/rollover")
-    def rollover_ecgc_season(req: dict[str, Any]) -> dict[str, Any]:
-        source_lid = int(req.get("source_league_id") or 20261)
-        target_year = int(req.get("target_year") or 2027)
+    def rollover_ecgc_season(req: RolloverReq) -> dict[str, Any]:
+        source_lid = req.source_league_id or 20261
+        target_year = req.target_year or 2027
         if target_year < 2018 or target_year > 2100:
             raise HTTPException(422, detail="target_year must be between 2018 and 2100")
-        division = str(req.get("division") or ("womens" if source_lid % 10 == 2 else "mens")).lower()
+        division = (req.division or ("womens" if source_lid % 10 == 2 else "mens")).lower()
         if division not in ("mens", "womens"):
             raise HTTPException(422, detail="division must be mens or womens")
         target_lid = target_year * 10 + (2 if division == "womens" else 1)
-        weeks = max(1, min(52, int(req.get("weeks") or (12 if division == "womens" else 16))))
-        start_date = str(req.get("start_date") or f"{target_year}-05-05")
+        weeks = max(1, min(52, req.weeks or (12 if division == "womens" else 16)))
+        start_date = req.start_date or f"{target_year}-05-05"
         div_title = "Women's League" if division == "womens" else "Men's League"
         league_name = _clean_text(
-            str(req.get("league_name") or f"{target_year} ECGC {div_title}"),
+            req.league_name or f"{target_year} ECGC {div_title}",
             field="league_name",
             max_len=80,
             required=True,

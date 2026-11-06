@@ -10,6 +10,7 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -67,16 +68,10 @@ def migrate_mdb_to_sqlite(mdb_path: Path, sqlite_path: Path, schedules_dir: Path
     os.close(fd)
     try:
         res = _migrate_into(mdb_path, Path(scratch), schedules_dir)
-        src = sqlite3.connect(scratch)
-        try:
-            dst = sqlite3.connect(str(sqlite_path), timeout=30)
-            try:
+        with closing(sqlite3.connect(scratch)) as src:
+            with closing(sqlite3.connect(str(sqlite_path), timeout=30)) as dst:
                 dst.execute("PRAGMA journal_mode=WAL")
                 src.backup(dst)
-            finally:
-                dst.close()
-        finally:
-            src.close()
         return res
     finally:
         for suffix in ("", "-wal", "-shm", "-journal"):
@@ -93,8 +88,7 @@ def _migrate_into(mdb_path: Path, sqlite_path: Path, schedules_dir: Path | None 
     res_t = subprocess.run([mdb_tables_bin, "-1", str(mdb_path)], capture_output=True, text=True, check=True, timeout=30)
     tables = sorted(t.strip() for t in res_t.stdout.splitlines() if t.strip())
 
-    conn = sqlite3.connect(str(sqlite_path))
-    try:
+    with closing(sqlite3.connect(str(sqlite_path))) as conn:
         migrated_tables = 0
         total_rows = 0
 
@@ -151,5 +145,3 @@ def _migrate_into(mdb_path: Path, sqlite_path: Path, schedules_dir: Path | None 
             "templates_loaded": templates_loaded,
             "tables": tables,
         }
-    finally:
-        conn.close()

@@ -1,3 +1,4 @@
+import pytest
 from app import match_engine as me
 
 
@@ -740,3 +741,197 @@ def test_compute_week():
     assert res["team_results"][0]["players_played"] == 1
     assert res["team_results"][1]["TeamID"] == 2
     assert res["team_results"][1]["players_played"] == 1
+
+def test_auto_score_week():
+    import sqlite3
+    from app.match_engine import auto_score_week
+
+    conn = sqlite3.connect(":memory:")
+
+    conn.execute("CREATE TABLE Leagues (LeagueID INTEGER, LeagueName TEXT, LeagueHoles INTEGER, SubPercent INTEGER, NumManTeams INTEGER)")
+    conn.execute("INSERT INTO Leagues (LeagueID, LeagueName, LeagueHoles, SubPercent, NumManTeams) VALUES (1, 'Test League', 18, 100, 2)")
+
+    conn.execute("CREATE TABLE LeagueRules (LeagueID INTEGER, IndPtsNet REAL)")
+    conn.execute("INSERT INTO LeagueRules (LeagueID, IndPtsNet) VALUES (1, 1.0)")
+
+    conn.execute("CREATE TABLE Courses (CourseID INTEGER, CourseName TEXT)")
+    conn.execute("INSERT INTO Courses (CourseID, CourseName) VALUES (1, 'Test Course')")
+
+    conn.execute("CREATE TABLE \"1Players\" (PlayerID INTEGER, PlayerFirst TEXT, PlayerLast TEXT, Handicap REAL, TeamID INTEGER, Division TEXT, Points REAL)")
+    conn.execute("INSERT INTO \"1Players\" (PlayerID, PlayerFirst, PlayerLast, Handicap, TeamID, Division, Points) VALUES (1, 'John', 'Doe', 10.0, 1, 'A', 0)")
+    conn.execute("INSERT INTO \"1Players\" (PlayerID, PlayerFirst, PlayerLast, Handicap, TeamID, Division, Points) VALUES (2, 'Jane', 'Doe', 12.0, 2, 'A', 0)")
+
+    conn.execute("CREATE TABLE \"1Teams\" (TeamID INTEGER, TeamName TEXT, Points REAL)")
+    conn.execute("INSERT INTO \"1Teams\" (TeamID, TeamName, Points) VALUES (1, 'Team 1', 0)")
+    conn.execute("INSERT INTO \"1Teams\" (TeamID, TeamName, Points) VALUES (2, 'Team 2', 0)")
+
+    conn.execute("CREATE TABLE CourseYards (CourseID INTEGER)")
+    conn.execute("CREATE TABLE CourseHandicap (CourseID INTEGER)")
+    conn.execute("CREATE TABLE CoursePar (CourseID INTEGER)")
+    conn.execute("CREATE TABLE CourseHoles (CourseID INTEGER, HoleNumber INTEGER, Par INTEGER, HandicapRank INTEGER)")
+    for i in range(1, 19):
+        conn.execute("INSERT INTO CourseHoles (CourseID, HoleNumber, Par, HandicapRank) VALUES (1, ?, 4, ?)", (i, i))
+
+    conn.execute("CREATE TABLE \"1Schedule\" (WeekNum INTEGER, Match1Team1 INTEGER, Match1Team2 INTEGER)")
+    conn.execute("INSERT INTO \"1Schedule\" (WeekNum, Match1Team1, Match1Team2) VALUES (1, 1, 2)")
+
+    # Sub tables
+    conn.execute("CREATE TABLE \"1Subs\" (SubID INTEGER, SubFirst TEXT, SubLast TEXT, SubHandicap REAL)")
+    conn.execute("INSERT INTO \"1Subs\" (SubID, SubFirst, SubLast, SubHandicap) VALUES (99, 'Sub', 'Bob', 15.0)")
+
+    conn.execute("CREATE TABLE \"1SubResults\" (WeekNum INTEGER, PlayerID INTEGER, SubID INTEGER, " + ", ".join([f'"{i}" INTEGER' for i in range(1, 19)]) + ", SubCap REAL)")
+    conn.execute("INSERT INTO \"1SubResults\" (WeekNum, PlayerID, SubID, " + ", ".join([f'"{i}"' for i in range(1, 19)]) + ", SubCap) VALUES (1, 1, 99, " + ", ".join(["3" for _ in range(18)]) + ", 5.0)")
+
+    conn.execute("CREATE TABLE \"1PlayerResults\" (WeekNum INTEGER, PlayerID INTEGER, Sub INTEGER, Forfeit INTEGER, OpponentID INTEGER, IndividualPts REAL, FieldPts REAL, " + ", ".join([f'"{i}" INTEGER' for i in range(1, 19)]) + ")")
+    # Player 1 is a sub
+    conn.execute("INSERT INTO \"1PlayerResults\" (WeekNum, PlayerID, Sub, Forfeit, " + ", ".join([f'"{i}"' for i in range(1, 19)]) + ") VALUES (1, 1, 1, 0, " + ", ".join(["0" for _ in range(18)]) + ")")
+    # Player 2 is normal
+    conn.execute("INSERT INTO \"1PlayerResults\" (WeekNum, PlayerID, Sub, Forfeit, " + ", ".join([f'"{i}"' for i in range(1, 19)]) + ") VALUES (1, 2, 0, 0, " + ", ".join(["4" for _ in range(18)]) + ")")
+
+    conn.execute("CREATE TABLE \"1TeamResults\" (WeekNum INTEGER, TeamID INTEGER, TeamPts REAL, MatchPts REAL, FieldPts REAL, TeamActual INTEGER, TeamNet INTEGER, SubPts INTEGER, UserDefinedPts INTEGER)")
+
+    conn.execute("CREATE TABLE \"1AdjScores\" (WeekNum INTEGER, ID1 INTEGER, ID2 INTEGER)")
+    conn.execute("CREATE TABLE \"1ActScores\" (WeekNum INTEGER, ID1 INTEGER, ID2 INTEGER)")
+    conn.execute("CREATE TABLE \"1Handicaps\" (WeekNum INTEGER, ID1 INTEGER, ID2 INTEGER)")
+    conn.execute("CREATE TABLE \"1AdjOverPar\" (WeekNum INTEGER, ID1 INTEGER, ID2 INTEGER)")
+
+    res = auto_score_week(conn, 1, 1)
+
+    assert res["persisted"] is True
+
+    # Run it again to test update path
+    res2 = auto_score_week(conn, 1, 1)
+    assert res2["persisted"] is True
+
+
+
+@pytest.fixture
+def clubhouse_db(monkeypatch):
+    import datetime
+    class MockDatetime(datetime.datetime):
+        @classmethod
+        def utcnow(cls):
+            return cls(2023, 1, 1, 12, 0, 0)
+    monkeypatch.setattr('app.match_engine.datetime', MockDatetime)
+
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+
+    conn.execute("CREATE TABLE Leagues (LeagueID INTEGER, LeagueName TEXT, LeagueHoles INTEGER, SubPercent INTEGER, NumManTeams INTEGER, FirstTeeTime TEXT, MinsBetweenGroups INTEGER)")
+    conn.execute("INSERT INTO Leagues (LeagueID, LeagueName, LeagueHoles, SubPercent, NumManTeams, FirstTeeTime, MinsBetweenGroups) VALUES (1, 'Test League', 18, 100, 2, '08:00 AM', 10)")
+
+    conn.execute("CREATE TABLE LeagueRules (LeagueID INTEGER, IndPtsNet REAL)")
+    conn.execute("INSERT INTO LeagueRules (LeagueID, IndPtsNet) VALUES (1, 1.0)")
+
+    conn.execute("CREATE TABLE Courses (CourseID INTEGER, CourseName TEXT)")
+    conn.execute("INSERT INTO Courses (CourseID, CourseName) VALUES (1, 'Test Course')")
+
+    conn.execute("CREATE TABLE \"1Players\" (PlayerID INTEGER, PlayerFirst TEXT, PlayerLast TEXT, Handicap REAL, TeamID INTEGER, Division TEXT, Points REAL)")
+    conn.execute("INSERT INTO \"1Players\" (PlayerID, PlayerFirst, PlayerLast, Handicap, TeamID, Division, Points) VALUES (1, 'John', 'Doe', 10.0, 1, 'A', 0)")
+    conn.execute("INSERT INTO \"1Players\" (PlayerID, PlayerFirst, PlayerLast, Handicap, TeamID, Division, Points) VALUES (2, 'Jane', 'Doe', 12.0, 2, 'A', 0)")
+    conn.execute("INSERT INTO \"1Players\" (PlayerID, PlayerFirst, PlayerLast, Handicap, TeamID, Division, Points) VALUES (3, 'A', 'B', 10.0, 3, 'A', 0)")
+    conn.execute("INSERT INTO \"1Players\" (PlayerID, PlayerFirst, PlayerLast, Handicap, TeamID, Division, Points) VALUES (4, 'C', 'D', 10.0, 4, 'A', 0)")
+
+    conn.execute("CREATE TABLE \"1Teams\" (TeamID INTEGER, TeamName TEXT, Points REAL)")
+    conn.execute("INSERT INTO \"1Teams\" (TeamID, TeamName, Points) VALUES (1, 'Team 1', 0)")
+    conn.execute("INSERT INTO \"1Teams\" (TeamID, TeamName, Points) VALUES (2, 'Team 2', 0)")
+    conn.execute("INSERT INTO \"1Teams\" (TeamID, TeamName, Points) VALUES (3, 'Team 3', 0)")
+    conn.execute("INSERT INTO \"1Teams\" (TeamID, TeamName, Points) VALUES (4, 'Team 4', 0)")
+
+    conn.execute("CREATE TABLE CourseYards (CourseID INTEGER)")
+    conn.execute("CREATE TABLE CourseHandicap (CourseID INTEGER)")
+    conn.execute("CREATE TABLE CoursePar (CourseID INTEGER)")
+    conn.execute("CREATE TABLE CourseHoles (CourseID INTEGER, HoleNumber INTEGER, Par INTEGER, HandicapRank INTEGER)")
+    for i in range(1, 19):
+        conn.execute("INSERT INTO CourseHoles (CourseID, HoleNumber, Par, HandicapRank) VALUES (1, ?, 4, ?)", (i, i))
+
+    conn.execute("CREATE TABLE \"1Schedule\" (WeekNum INTEGER, Match1Team1 INTEGER, Match1Team2 INTEGER, Match2Team1 INTEGER, Match2Team2 INTEGER, Date TEXT, Weather TEXT)")
+
+    conn.execute("CREATE TABLE \"1Scorecards\" (WeekNum INTEGER, PlayerID INTEGER, Hole1 INTEGER, Hole2 INTEGER, Hole3 INTEGER, Hole4 INTEGER, Hole5 INTEGER, Hole6 INTEGER, Hole7 INTEGER, Hole8 INTEGER, Hole9 INTEGER, Hole10 INTEGER, Hole11 INTEGER, Hole12 INTEGER, Hole13 INTEGER, Hole14 INTEGER, Hole15 INTEGER, Hole16 INTEGER, Hole17 INTEGER, Hole18 INTEGER)")
+
+    conn.execute("CREATE TABLE \"1PlayerResults\" (WeekNum INTEGER, PlayerID INTEGER, Sub INTEGER, Forfeit INTEGER, OpponentID INTEGER, IndividualPts REAL, FieldPts REAL, " + ", ".join([f'"{i}" INTEGER' for i in range(1, 19)]) + ")")
+    conn.execute("INSERT INTO \"1PlayerResults\" (WeekNum, PlayerID, Sub, Forfeit, " + ", ".join([f'"{i}"' for i in range(1, 19)]) + ") VALUES (1, 1, 0, 0, " + ", ".join(["4" for _ in range(18)]) + ")")
+    conn.execute("INSERT INTO \"1PlayerResults\" (WeekNum, PlayerID, Sub, Forfeit, " + ", ".join([f'"{i}"' for i in range(1, 19)]) + ") VALUES (1, 2, 0, 0, " + ", ".join(["5" for _ in range(18)]) + ")")
+    conn.execute("INSERT INTO \"1PlayerResults\" (WeekNum, PlayerID, Sub, Forfeit, " + ", ".join([f'"{i}"' for i in range(1, 19)]) + ") VALUES (1, 3, 0, 0, " + ", ".join(["4" for _ in range(18)]) + ")")
+    conn.execute("INSERT INTO \"1PlayerResults\" (WeekNum, PlayerID, Sub, Forfeit, " + ", ".join([f'"{i}"' for i in range(1, 19)]) + ") VALUES (1, 4, 0, 0, " + ", ".join(["5" for _ in range(18)]) + ")")
+
+    return conn
+
+@pytest.mark.parametrize("scenario", [
+    "normal", "edge_cases", "fallback", "while_loop", "while_fallback"
+])
+def test_clubhouse_sheet_scenarios(clubhouse_db, scenario):
+    from app.match_engine import clubhouse_sheet
+    conn = clubhouse_db
+
+    if scenario == "normal":
+        conn.execute("INSERT INTO \"1Schedule\" (WeekNum, Match1Team1, Match1Team2, Date, Weather) VALUES (1, 1, 2, '2023-01-01', 'Sunny')")
+        conn.execute("CREATE TABLE \"1TeeTimes\" (MatchNum INTEGER, Ttime TEXT)")
+        conn.execute("INSERT INTO \"1TeeTimes\" (MatchNum, Ttime) VALUES (1, '08:00 AM')")
+        res = clubhouse_sheet(conn, 1, 1)
+        assert res["week_num"] == 1
+        assert res["league"]["LeagueName"] == 'Test League'
+
+    elif scenario == "edge_cases":
+        conn.execute("INSERT INTO \"1Schedule\" (WeekNum, Match1Team1, Match1Team2, Date, Weather) VALUES (1, 1, 2, '2023-01-01', 'Sunny')")
+        conn.execute("CREATE TABLE \"1TeeTimes\" (MatchNum INTEGER, Ttime TEXT)")
+        conn.execute("INSERT INTO \"1TeeTimes\" (MatchNum, Ttime) VALUES (1, '08:00 AM')")
+        res = clubhouse_sheet(conn, 1, 1)
+        assert res["week_num"] == 1
+        assert len(res["matchups"]) > 0
+
+    elif scenario == "fallback":
+        conn.execute("INSERT INTO \"1Schedule\" (WeekNum, Match1Team1, Match1Team2) VALUES (1, 1, 2)")
+        res = clubhouse_sheet(conn, 1, 1)
+        assert res["week_num"] == 1
+        conn.execute("UPDATE Leagues SET FirstTeeTime = NULL")
+        res = clubhouse_sheet(conn, 1, 1)
+        assert res["week_num"] == 1
+
+    elif scenario == "while_loop":
+        conn.execute("INSERT INTO \"1Schedule\" (WeekNum, Match1Team1, Match1Team2, Match2Team1, Match2Team2) VALUES (1, 1, 2, 3, 4)")
+        conn.execute("CREATE TABLE \"1TeeTimes\" (MatchNum INTEGER, Ttime TEXT)")
+        conn.execute("INSERT INTO \"1TeeTimes\" (MatchNum, Ttime) VALUES (1, '08:00 AM')")
+        res = clubhouse_sheet(conn, 1, 1)
+        assert res["week_num"] == 1
+        conn.execute("DELETE FROM \"1TeeTimes\"")
+        conn.execute("UPDATE Leagues SET FirstTeeTime = NULL")
+        res = clubhouse_sheet(conn, 1, 1)
+        assert res["week_num"] == 1
+
+    elif scenario == "while_fallback":
+        conn.execute("INSERT INTO \"1Schedule\" (WeekNum, Match1Team1, Match1Team2, Match2Team1, Match2Team2) VALUES (1, 1, 2, 3, 4)")
+        conn.execute("CREATE TABLE \"1TeeTimes\" (MatchNum INTEGER, Ttime TEXT)")
+        conn.execute("INSERT INTO \"1TeeTimes\" (MatchNum, Ttime) VALUES (1, '')")
+        res = clubhouse_sheet(conn, 1, 1)
+        assert res["week_num"] == 1
+
+def test_score_ecgc_2person_match_diff_zero():
+    from app.match_engine import score_ecgc_2person_match
+
+    a_entries = {
+        "team_name": "Team 1",
+        "player1": {"PlayerID": 1, "PlayerFirst": "A", "PlayerLast": "A", "TeamID": 1, "Handicap": 10, "Gross": 36, "AdjGross": 36, "holes": [4]*9, "adj_holes": [4]*9, "played": True, "nine": "front"},
+        "player2": {"PlayerID": 2, "PlayerFirst": "B", "PlayerLast": "B", "TeamID": 1, "Handicap": 10, "Gross": 36, "AdjGross": 36, "holes": [4]*9, "adj_holes": [4]*9, "played": True, "nine": "front"}
+    }
+    b_entries = {
+        "team_name": "Team 2",
+        "player1": {"PlayerID": 3, "PlayerFirst": "C", "PlayerLast": "C", "TeamID": 2, "Handicap": 10, "Gross": 36, "AdjGross": 36, "holes": [4]*9, "adj_holes": [4]*9, "played": True, "nine": "front"},
+        "player2": {"PlayerID": 4, "PlayerFirst": "D", "PlayerLast": "D", "TeamID": 2, "Handicap": 10, "Gross": 36, "AdjGross": 36, "holes": [4]*9, "adj_holes": [4]*9, "played": True, "nine": "front"}
+    }
+
+    res = score_ecgc_2person_match(a_entries, b_entries, hole_ranks=[i for i in range(1, 10)], pars=[4]*9, rules={"points_per_hole_win": 1.0, "points_per_hole_tie": 0.5, "net_bonus_pts": 1.0, "net_even_pts": 0.0, "net_penalty_pts": -1.0})
+
+    assert res["status"] == "scored"
+    assert res["team_a"]["hole_points"] == 4.5
+
+def test_compute_ecgc_pt_fallthrough():
+    from app.match_engine import compute_ecgc_pt
+    res = compute_ecgc_pt(35.5, net_bonus_below_max=35, net_even_min=36, net_even_max=36, net_penalty_above_min=37)
+    assert res == 0.0
+
+
+def test_compute_ecgc_pt_missing_args():
+    from app.match_engine import compute_ecgc_pt
+    res = compute_ecgc_pt(35.0)
+    assert res == 1.0

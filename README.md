@@ -14,7 +14,7 @@ Replaces the 1990s 32-bit Visual Basic 6.0 executable (`Gls90.exe` + `SPR32X60.o
 - **ECGC 2-Person Match Play + Net `PT` (`+1/0/-1`) & Handicap Progression (`app/golf_engine.py`)**:
   - Computes 9-hole 2-person match points (`1.0` win / `0.5` tie, `9.0` max) plus per-player Net vs. Par 36 `PT` bonus/penalty (`+1` / `0` / `-1`) and automatic weekly handicap progression (`HCP_next = clamp(HCP_prev - PT, 0, 36)`).
 - **Analytics, Pairing Builder, Season Rollover & Printable Clubhouse Sheet**:
-  - Includes `GET /api/ecgc/course-analytics` (Hole 1–9 toughness & player career matrix), `POST /api/ecgc/leagues/{id}/generate-week` (round-robin pairing builder), `POST /api/ecgc/leagues/rollover` (new season rollover wizard), and a 1-page `@media print` Clubhouse Sheet.
+  - Includes `GET /api/ecgc/course-analytics` (Hole 1–9 toughness & player career matrix), `POST /api/leagues/{lid}/schedule/generate` (round-robin pairing builder), `POST /api/ecgc/seasons/rollover` (new season rollover wizard), and a 1-page `@media print` Clubhouse Sheet.
 - **Verification**: `PYTHONPATH=. pytest -q tests/` passes **`234 / 234` tests** (`tests/test_ecgc_rules.py`, `tests/test_ecgc_rules_and_import.py`, and full regression suite).
 
 ---

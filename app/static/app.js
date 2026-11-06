@@ -1,6 +1,7 @@
 "use strict";
 
 const state = {
+  modalFocusReturn: null,
   leagues: [],
   ecgcSeasons: [],
   ecgcPlayers: [],
@@ -1288,6 +1289,7 @@ function renderStandingsTab(st) {
 }
 
 async function openCareerDrawer(playerId) {
+  state.modalFocusReturn = document.activeElement;
   const data = await api(`/api/ecgc/players/${playerId}`);
   const drawer = document.getElementById("playerCareerDrawer");
   const titleEl = document.getElementById("careerDrawerTitle");
@@ -1391,9 +1393,14 @@ async function openCareerDrawer(playerId) {
 
 function closeCareerDrawer() {
   document.getElementById("playerCareerDrawer")?.classList.add("hidden");
+  if (state.modalFocusReturn) {
+    state.modalFocusReturn.focus();
+    state.modalFocusReturn = null;
+  }
 }
 
 async function openBreakdownModal(matchId) {
+  state.modalFocusReturn = document.activeElement;
   const data = await api(`/api/ecgc/matches/${matchId}/breakdown`);
   const modal = document.getElementById("matchupBreakdownModal");
   const titleEl = document.getElementById("breakdownModalTitle");
@@ -1492,6 +1499,10 @@ async function openBreakdownModal(matchId) {
 
 function closeBreakdownModal() {
   document.getElementById("matchupBreakdownModal")?.classList.add("hidden");
+  if (state.modalFocusReturn) {
+    state.modalFocusReturn.focus();
+    state.modalFocusReturn = null;
+  }
 }
 
 function extractScheduledWeekMatches(sc) {
@@ -2540,6 +2551,7 @@ async function loadCoursesTab() {
 }
 
 async function openClubhouseSheetModal() {
+  state.modalFocusReturn = document.activeElement;
   const st = state.standings || (await api(`/api/leagues/${state.activeLeagueId}/standings`));
   const sc = state.scorecard || (await api(`/api/leagues/${state.activeLeagueId}/week/${state.activeWeek}`));
   const lg = st.league || {};
@@ -2672,6 +2684,10 @@ async function openClubhouseSheetModal() {
 
 function closeClubhouseSheetModal() {
   document.getElementById("clubhouseSheetModal")?.classList.add("hidden");
+  if (state.modalFocusReturn) {
+    state.modalFocusReturn.focus();
+    state.modalFocusReturn = null;
+  }
 }
 
 async function loadExplorerTab() {

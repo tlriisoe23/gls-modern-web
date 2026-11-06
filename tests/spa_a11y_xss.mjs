@@ -174,6 +174,26 @@ try {
   });
   record("A11y 2.1.1: Escape closes Admin Tools drawer and focuses summary", drawerClosed && summaryFocused, `${drawerClosed} ${summaryFocused}`);
 
+  // A11y 2.1.1: Escape closes player career drawer and restores focus
+  await page.click("#tabbtn-standings");
+  const triggerBtnId = await page.evaluate(async () => {
+    const btn = document.querySelector("#ecgcStandingsBody .career-btn");
+    if (btn) {
+      if (!btn.id) btn.id = "testCareerBtn" + Math.random().toString(36).slice(2);
+      btn.focus();
+      btn.click();
+      return btn.id;
+    }
+    return null;
+  });
+  if (triggerBtnId) {
+    await page.waitForFunction(() => !document.getElementById("playerCareerDrawer")?.classList.contains("hidden"));
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => document.getElementById("playerCareerDrawer")?.classList.contains("hidden"));
+    const careerFocusRestored = await page.evaluate((id) => document.activeElement?.id === id, triggerBtnId);
+    record("A11y 2.1.1: Escape closes player career drawer and restores focus", careerFocusRestored, `careerFocusRestored=${careerFocusRestored}`);
+  }
+
   // Every visible form control & button has an accessible name.
   for (const tab of ["standings", "scorecard", "roster", "schedule", "courses", "explorer"]) {
     await page.click(`#tabbtn-${tab}`);

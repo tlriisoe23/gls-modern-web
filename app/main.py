@@ -246,19 +246,32 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             leagues = golf_engine.rows_as_dicts(conn.execute('SELECT * FROM "Leagues" ORDER BY CASE WHEN "LeagueID"=20261 THEN 0 WHEN "LeagueID">=20180 THEN 1 ELSE 2 END, "LeagueID" DESC'))
             courses = {c["CourseID"]: c["CourseName"] for c in golf_engine.rows_as_dicts(conn.execute('SELECT "CourseID","CourseName" FROM "Courses"'))}
             out_leagues = []
+            all_tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+
+            count_queries = []
             for lg in leagues:
                 lid = golf_engine.safe_int(lg.get("LeagueID"), -1)
                 if lid < 1 or str(lg.get("LeagueID")).strip() not in (str(lid), f"{lid}.0"):
-                    continue  # skip corrupt rows; LeagueID is interpolated into table names
+                    continue
                 out_leagues.append(lg)
+                for t in (f"{lid}Players", f"{lid}Teams", f"{lid}Schedule"):
+                    if t in all_tables:
+                        count_queries.append(f"SELECT '{t}', COUNT(*) FROM \"{t}\"")
+
+            counts = {}
+            if count_queries:
+                for i in range(0, len(count_queries), 100):
+                    chunk = count_queries[i:i + 100]
+                    for r in conn.execute(" UNION ALL ".join(chunk)):
+                        counts[r[0]] = r[1]
+
+            for lg in out_leagues:
+                lid = golf_engine.safe_int(lg.get("LeagueID"), -1)
                 lg["CourseName"] = courses.get(lg.get("CourseID"), "Edwards County Golf Course")
                 lg["LeagueHoles"] = int(lg.get("LeagueHoles") or 9)
-                p_tbl = f"{lid}Players"
-                t_tbl = f"{lid}Teams"
-                s_tbl = f"{lid}Schedule"
-                lg["player_count"] = conn.execute(f'SELECT COUNT(*) FROM "{p_tbl}"').fetchone()[0] if golf_engine.table_exists(conn, p_tbl) else 0
-                lg["team_count"] = conn.execute(f'SELECT COUNT(*) FROM "{t_tbl}"').fetchone()[0] if golf_engine.table_exists(conn, t_tbl) else 0
-                lg["week_count"] = conn.execute(f'SELECT COUNT(*) FROM "{s_tbl}"').fetchone()[0] if golf_engine.table_exists(conn, s_tbl) else 0
+                lg["player_count"] = counts.get(f"{lid}Players", 0)
+                lg["team_count"] = counts.get(f"{lid}Teams", 0)
+                lg["week_count"] = counts.get(f"{lid}Schedule", 0)
         return {"default_league_id": 20261, "default_course_id": 5, "default_holes": 9, "leagues": out_leagues}
 
     @app.get("/api/leagues/{lid}/standings")

@@ -393,3 +393,24 @@ def test_readme_api_inventory_matches_code():
 
     assert not missing_in_readme, f"Endpoints in app but missing in README: {missing_in_readme}"
     assert not missing_in_app, f"Endpoints in README but missing in app: {missing_in_app}"
+
+def test_migrate_mdb_to_sqlite_cleans_up_scratch_on_error(monkeypatch, tmp_path):
+    from app import mdb_migrator
+    import subprocess
+
+    def fake_run(*args, **kwargs):
+        raise subprocess.CalledProcessError(1, args[0])
+
+    monkeypatch.setattr(mdb_migrator.subprocess, "run", fake_run)
+    monkeypatch.setattr(mdb_migrator.shutil, "which", lambda x: f"/fake/bin/{x}")
+
+    mdb_path = tmp_path / "fake.mdb"
+    mdb_path.write_bytes(b"dummy")
+    sqlite_path = tmp_path / "out.db"
+
+    import pytest
+    with pytest.raises(subprocess.CalledProcessError):
+        mdb_migrator.migrate_mdb_to_sqlite(mdb_path, sqlite_path)
+
+    leftovers = list(tmp_path.glob(".gls9-migrate-*"))
+    assert not leftovers, f"Scratch files leaked: {leftovers}"

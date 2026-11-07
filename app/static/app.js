@@ -416,21 +416,36 @@ function bindStaticHandlers() {
   const caddyBtn = document.getElementById("toggleCaddyBtn");
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
+      let handled = false;
       const box = document.getElementById("caddyModeBox");
       if (box && !box.classList.contains("hidden")) {
         box.classList.add("hidden");
         caddyBtn.setAttribute("aria-expanded", "false");
         caddyBtn.focus();
+        handled = true;
       }
       const adminDrawer = document.getElementById("adminToolsDrawer");
-      if (adminDrawer && adminDrawer.open) {
+      if (!handled && adminDrawer && adminDrawer.open) {
         adminDrawer.open = false;
         const summary = adminDrawer.querySelector("summary");
         if (summary) summary.focus();
+        handled = true;
       }
-      closeBreakdownModal();
-      closeCareerDrawer();
-      closeClubhouseSheetModal();
+      const breakdownModal = document.getElementById("matchupBreakdownModal");
+      if (!handled && breakdownModal && !breakdownModal.classList.contains("hidden")) {
+          closeBreakdownModal();
+          handled = true;
+      }
+      const careerDrawer = document.getElementById("playerCareerDrawer");
+      if (!handled && careerDrawer && !careerDrawer.classList.contains("hidden")) {
+          closeCareerDrawer();
+          handled = true;
+      }
+      const clubhouseSheetModal = document.getElementById("clubhouseSheetModal");
+      if (!handled && clubhouseSheetModal && !clubhouseSheetModal.classList.contains("hidden")) {
+          closeClubhouseSheetModal();
+          handled = true;
+      }
     }
   });
   caddyBtn.addEventListener("click", () => {

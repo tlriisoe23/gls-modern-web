@@ -1014,7 +1014,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             if not golf_engine.table_exists(conn, s_tbl):
                 raise HTTPException(404, detail=f"League {lid} has no schedule table")
             dt_str = _clean_text(str(req.get("date") or date.today().isoformat()), field="date", max_len=32, required=False) or date.today().isoformat()
-            half = 1 if int(req.get("half") or (1 if week_num <= 8 else 2)) == 1 else 2
+            half = 1 if golf_engine.safe_int(req.get("half"), 1 if week_num <= 8 else 2) == 1 else 2
             weather = _clean_text(str(req.get("weather") or "Clear"), field="weather", max_len=32, required=False) or "Clear"
             matches = req.get("matches") or []
             if not isinstance(matches, list):
@@ -1051,15 +1051,15 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
 
     @app.post("/api/ecgc/seasons/rollover")
     def rollover_ecgc_season(req: dict[str, Any]) -> dict[str, Any]:
-        source_lid = int(req.get("source_league_id") or 20261)
-        target_year = int(req.get("target_year") or 2027)
+        source_lid = golf_engine.safe_int(req.get("source_league_id"), 20261)
+        target_year = golf_engine.safe_int(req.get("target_year"), 2027)
         if target_year < 2018 or target_year > 2100:
             raise HTTPException(422, detail="target_year must be between 2018 and 2100")
         division = str(req.get("division") or ("womens" if source_lid % 10 == 2 else "mens")).lower()
         if division not in ("mens", "womens"):
             raise HTTPException(422, detail="division must be mens or womens")
         target_lid = target_year * 10 + (2 if division == "womens" else 1)
-        weeks = max(1, min(52, int(req.get("weeks") or (12 if division == "womens" else 16))))
+        weeks = max(1, min(52, golf_engine.safe_int(req.get("weeks"), 12 if division == "womens" else 16)))
         start_date = str(req.get("start_date") or f"{target_year}-05-05")
         div_title = "Women's League" if division == "womens" else "Men's League"
         league_name = _clean_text(

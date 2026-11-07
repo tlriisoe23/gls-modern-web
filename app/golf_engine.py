@@ -69,7 +69,9 @@ def stroke_index_map(holes_meta: list[dict[str, Any]]) -> list[int]:
 
 
 def rows_as_dicts(cur: sqlite3.Cursor) -> list[dict[str, Any]]:
-    cols = [d[0] for d in cur.description] if cur.description else []
+    if not cur.description:
+        return []
+    cols = tuple(d[0] for d in cur.description)
     return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
@@ -240,17 +242,22 @@ def get_league_standings(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
     s_tbl = f"{lid}Subs"
     f_tbl = f"{lid}LeagueFees"
     pr_tbl = f"{lid}PlayerPrizes"
-
-    players = rows_as_dicts(conn.execute(f'SELECT * FROM "{p_tbl}" ORDER BY "Points" DESC, "Handicap" ASC')) if table_exists(conn, p_tbl) else []
-    teams = rows_as_dicts(conn.execute(f'SELECT * FROM "{t_tbl}" ORDER BY "Points" DESC, "PrevPts" DESC')) if table_exists(conn, t_tbl) else []
-    subs = rows_as_dicts(conn.execute(f'SELECT * FROM "{s_tbl}" ORDER BY "SubID" ASC')) if table_exists(conn, s_tbl) else []
-    fees = rows_as_dicts(conn.execute(f'SELECT * FROM "{f_tbl}" ORDER BY "PlayerID" ASC')) if table_exists(conn, f_tbl) else []
-    prizes = rows_as_dicts(conn.execute(f'SELECT * FROM "{pr_tbl}" ORDER BY "WeekNum" ASC')) if table_exists(conn, pr_tbl) else []
-
     res_tbl = f"{lid}PlayerResults"
+
+    # Batch check table existence to avoid N+1 queries on sqlite_master
+    req_tables = [p_tbl, t_tbl, s_tbl, f_tbl, pr_tbl, res_tbl, "ecgc_standings"]
+    placeholders = ",".join("?" for _ in req_tables)
+    existing_tables = {r[0] for r in conn.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name IN ({placeholders})", req_tables).fetchall()}
+
+    players = rows_as_dicts(conn.execute(f'SELECT * FROM "{p_tbl}" ORDER BY "Points" DESC, "Handicap" ASC')) if p_tbl in existing_tables else []
+    teams = rows_as_dicts(conn.execute(f'SELECT * FROM "{t_tbl}" ORDER BY "Points" DESC, "PrevPts" DESC')) if t_tbl in existing_tables else []
+    subs = rows_as_dicts(conn.execute(f'SELECT * FROM "{s_tbl}" ORDER BY "SubID" ASC')) if s_tbl in existing_tables else []
+    fees = rows_as_dicts(conn.execute(f'SELECT * FROM "{f_tbl}" ORDER BY "PlayerID" ASC')) if f_tbl in existing_tables else []
+    prizes = rows_as_dicts(conn.execute(f'SELECT * FROM "{pr_tbl}" ORDER BY "WeekNum" ASC')) if pr_tbl in existing_tables else []
+
     num_holes = int(league.get("LeagueHoles") or 9)
     p_stats: dict[int, dict[str, Any]] = {}
-    if table_exists(conn, res_tbl):
+    if res_tbl in existing_tables:
         for r in rows_as_dicts(conn.execute(f'SELECT "PlayerID", "FrontNine", "BackNine", "IndividualPts" FROM "{res_tbl}"')):
             pid = safe_int(r.get("PlayerID"))
             gross = safe_int(r.get("FrontNine")) + (safe_int(r.get("BackNine")) if num_holes > 9 else 0)
@@ -274,7 +281,7 @@ def get_league_standings(conn: sqlite3.Connection, lid: int) -> dict[str, Any]:
         players_by_id[pid] = pl
 
     ecgc_st_map: dict[str, dict[str, Any]] = {}
-    if table_exists(conn, "ecgc_standings"):
+    if "ecgc_standings" in existing_tables:
         for es in rows_as_dicts(conn.execute("SELECT * FROM ecgc_standings WHERE gls_league_id=? AND split_name='final'", (lid,))):
             ecgc_st_map[str(es.get("team_name") or "").strip()] = es
 

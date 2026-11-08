@@ -253,7 +253,10 @@ button,
 }
 
 button:disabled,
-.btn:disabled {
+input:disabled,
+select:disabled,
+.btn:disabled,
+.btn:has(input:disabled) {
   opacity: 0.6;
   cursor: not-allowed;
 }

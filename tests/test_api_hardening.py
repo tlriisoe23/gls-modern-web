@@ -415,6 +415,7 @@ def test_migrate_mdb_to_sqlite_cleans_up_scratch_on_error(monkeypatch, tmp_path)
     leftovers = list(tmp_path.glob(".gls9-migrate-*"))
     assert not leftovers, f"Scratch files leaked: {leftovers}"
 
+
 def test_ecgc_rules_payload_guard_simulate(client):
     res1 = client.post("/api/rules/simulate", json={"team_a": {}, "team_b": {}, "rules": None})
     assert res1.status_code == 422
@@ -427,3 +428,7 @@ def test_ecgc_rules_payload_guard_simulate(client):
 
     res4 = client.post("/api/rules/simulate", json={"team_a": {}, "team_b": {}, "rules": "x"})
     assert res4.status_code == 422
+
+
+    res5 = client.post("/api/rules/simulate", json={"team_a": None, "team_b": {}})
+    assert res5.status_code == 422

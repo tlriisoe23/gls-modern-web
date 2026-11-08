@@ -853,9 +853,12 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
     @app.post("/api/rules/simulate")
     def simulate_ecgc_match(req: dict[str, Any]) -> dict[str, Any]:
         for key in ("team_a", "team_b", "rules"):
-            if not isinstance(req.get(key, {}), dict):
+            if key in req and not isinstance(req.get(key), dict):
                 raise HTTPException(422, detail=f"{key} must be an object")
-        _validate_ecgc_rules(req.get("rules", {}))
+        rules_val = req.get("rules")
+        if rules_val is None:
+            rules_val = {}
+        _validate_ecgc_rules(rules_val)
         for key in ("hole_ranks", "pars"):
             if key in req:
                 values = req[key]
@@ -865,7 +868,12 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
                     raise HTTPException(422, detail="hole_ranks must be a permutation of 1..9")
         for team_key in ("team_a", "team_b"):
             for player_key in ("player1", "player2"):
-                player = req.get(team_key, {}).get(player_key, {})
+                team_val = req.get(team_key)
+                if team_val is None:
+                    team_val = {}
+                player = team_val.get(player_key)
+                if player is None:
+                    player = {}
                 if not isinstance(player, dict):
                     raise HTTPException(422, detail="Players must be objects")
                 hcp = player.get("handicap", 0)
@@ -876,9 +884,15 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
                         scores = player[scores_key]
                         if not isinstance(scores, list) or len(scores) != 9 or any(type(s) is not int or not -36 <= s <= golf_engine.MAX_HOLE_SCORE for s in scores):
                             raise HTTPException(422, detail="Scores must contain nine valid integers")
-        team_a = req.get("team_a", {})
-        team_b = req.get("team_b", {})
-        rules = req.get("rules", {})
+        team_a = req.get("team_a")
+        if team_a is None:
+            team_a = {}
+        team_b = req.get("team_b")
+        if team_b is None:
+            team_b = {}
+        rules = req.get("rules")
+        if rules is None:
+            rules = {}
         ranks = req.get("hole_ranks") or [7, 1, 5, 4, 6, 3, 2, 8, 9]
         pars = req.get("pars") or [4, 4, 4, 3, 5, 5, 4, 3, 4]
         return match_engine.score_ecgc_2person_match(

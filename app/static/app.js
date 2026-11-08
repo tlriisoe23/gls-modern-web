@@ -111,7 +111,7 @@ function guarded(fn) {
     if (event) {
       if (event.type === "submit" && event.submitter && typeof event.submitter.disabled !== "undefined") {
         btn = event.submitter;
-      } else if (event.currentTarget && typeof event.currentTarget.disabled !== "undefined") {
+      } else if (event.currentTarget && typeof event.currentTarget.disabled !== "undefined" && (event.currentTarget.tagName === "BUTTON" || (event.currentTarget.tagName === "INPUT" && event.currentTarget.type === "file"))) {
         btn = event.currentTarget;
       }
     }

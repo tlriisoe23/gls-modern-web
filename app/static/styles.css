@@ -253,8 +253,6 @@ button,
 }
 
 button:disabled,
-input:disabled,
-select:disabled,
 .btn:disabled,
 .btn:has(input:disabled) {
   opacity: 0.6;

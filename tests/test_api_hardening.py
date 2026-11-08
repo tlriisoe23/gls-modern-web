@@ -414,3 +414,30 @@ def test_migrate_mdb_to_sqlite_cleans_up_scratch_on_error(monkeypatch, tmp_path)
 
     leftovers = list(tmp_path.glob(".gls9-migrate-*"))
     assert not leftovers, f"Scratch files leaked: {leftovers}"
+
+
+def test_api_health_contract(client):
+    """Contract unit test verifying that /api/health matches expected schema and types."""
+
+    r = client.get("/api/health")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/json"
+
+    data = r.json()
+    assert isinstance(data, dict)
+
+    # Asserting all top level keys dynamically
+    expected_keys = {
+        'status': str,
+        'app': str,
+        'version': str,
+        'reconstructed_from': str,
+        'sqlite_tables_count': int,
+        'leagues_count': int,
+        'courses_count': int,
+        'round_robin_templates_count': int
+    }
+
+    for key, expected_type in expected_keys.items():
+        assert key in data, f"Missing key in health payload: {key}"
+        assert isinstance(data[key], expected_type), f"Expected {key} to be {expected_type}, got {type(data[key])}"

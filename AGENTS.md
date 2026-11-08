@@ -3,7 +3,7 @@
 ## Architecture & Runtime
 - **Port**: `:8104` (`uvicorn app.main:app --host 0.0.0.0 --port 8104`)
 - **Core Modules**: `app/main.py` (FastAPI routes), `app/golf_engine.py` and `app/match_engine.py` (USGA handicap, 2-man team match play, skins, and payouts), `app/mdb_migrator.py` (SQLite persistence & legacy `GLS90DB.MDB` migration), `app/static/` (responsive league operator & live scoring UI).
-- **Health Endpoint**: `GET /api/health` (`HTTP 200`).
+- **Health Endpoint**: `GET /api/health` (`HTTP 200`). Returns JSON with keys: `status`, `app`, `version`, `reconstructed_from`, `sqlite_tables_count`, `leagues_count`, `courses_count`, `round_robin_templates_count`.
 - **Verification**: Run `pytest -q` (`tests/`).
 
 <!-- PROJECT-REFERENCE-BINDER:START -->

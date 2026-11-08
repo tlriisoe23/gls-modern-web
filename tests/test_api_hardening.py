@@ -414,3 +414,32 @@ def test_migrate_mdb_to_sqlite_cleans_up_scratch_on_error(monkeypatch, tmp_path)
 
     leftovers = list(tmp_path.glob(".gls9-migrate-*"))
     assert not leftovers, f"Scratch files leaked: {leftovers}"
+
+def test_ecgc_importer_closes_connection_on_query_error(tmp_path, monkeypatch):
+    import app.ecgc_importer as ei
+    import sqlite3
+    import pytest
+
+    ecgc_path = tmp_path / "ecgc.sqlite"
+    sqlite3.connect(str(ecgc_path)).close()
+
+    class FakeConn:
+        def __init__(self):
+            self.closed = False
+        def execute(self, *a, **k):
+            raise sqlite3.OperationalError("boom")
+        def close(self):
+            self.closed = True
+
+    opened = []
+    def fake_connect(*a, **k):
+        c = FakeConn(); opened.append(c); return c
+
+    gls_conn = sqlite3.connect(":memory:")
+    monkeypatch.setattr(ei, "ensure_ecgc_course", lambda *a, **k: None)
+    monkeypatch.setattr(ei, "ensure_normalized_ecgc_tables", lambda *a, **k: None)
+    monkeypatch.setattr(ei.sqlite3, "connect", fake_connect)
+    with pytest.raises(sqlite3.OperationalError):
+        ei.import_ecgc_data(gls_conn, ecgc_path, tmp_path / "fake_brackets.json")
+    assert opened and all(c.closed for c in opened)
+    gls_conn.close()

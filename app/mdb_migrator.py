@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 
-def _clean_ident(name: str) -> str:
+def _clean_ident(name: str | None) -> str:
     return re.sub(r"[^A-Za-z0-9_]", "", name or "")
 
 

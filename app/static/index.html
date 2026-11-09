@@ -28,7 +28,7 @@
       </button>
 
       <details id="adminToolsDrawer" class="admin-drawer">
-        <summary class="btn">⚙️ Admin Tools</summary>
+        <summary class="btn"><span aria-hidden="true">⚙️</span> Admin Tools</summary>
         <div class="admin-drawer-menu">
           <button id="recalcHcpBtn" type="button" class="gold" title="Recompute Player &amp; Team Handicaps">
             ⚡ Recalculate Handicaps
@@ -56,12 +56,12 @@
 
   <nav class="tabs-bar" aria-label="GLS9 Workspaces Navigation">
     <div role="tablist" aria-label="GLS9 Workspaces" class="tabs-list">
-    <button class="tab-btn active" id="tabbtn-standings" type="button" data-tab="standings" role="tab" aria-selected="true" aria-controls="tab-standings" tabindex="0">🏆 1. Command Overview &amp; Standings</button>
-    <button class="tab-btn" id="tabbtn-scorecard" type="button" data-tab="scorecard" role="tab" aria-selected="false" aria-controls="tab-scorecard" tabindex="-1">📝 2. Scorecard &amp; Match Entry</button>
-    <button class="tab-btn" id="tabbtn-roster" type="button" data-tab="roster" role="tab" aria-selected="false" aria-controls="tab-roster" tabindex="-1">👥 3. Players &amp; Teams</button>
-    <button class="tab-btn" id="tabbtn-schedule" type="button" data-tab="schedule" role="tab" aria-selected="false" aria-controls="tab-schedule" tabindex="-1">📅 4. Schedule &amp; Pairings</button>
-    <button class="tab-btn" id="tabbtn-courses" type="button" data-tab="courses" role="tab" aria-selected="false" aria-controls="tab-courses" tabindex="-1">⛳ 5. ECGC Course &amp; Hole Analytics</button>
-    <button class="tab-btn" id="tabbtn-explorer" type="button" data-tab="explorer" role="tab" aria-selected="false" aria-controls="tab-explorer" tabindex="-1">⚙️ 6. Courses, Rules &amp; Data Import</button>
+    <button class="tab-btn active" id="tabbtn-standings" type="button" data-tab="standings" role="tab" aria-selected="true" aria-controls="tab-standings" tabindex="0"><span aria-hidden="true">🏆</span> 1. Command Overview &amp; Standings</button>
+    <button class="tab-btn" id="tabbtn-scorecard" type="button" data-tab="scorecard" role="tab" aria-selected="false" aria-controls="tab-scorecard" tabindex="-1"><span aria-hidden="true">📝</span> 2. Scorecard &amp; Match Entry</button>
+    <button class="tab-btn" id="tabbtn-roster" type="button" data-tab="roster" role="tab" aria-selected="false" aria-controls="tab-roster" tabindex="-1"><span aria-hidden="true">👥</span> 3. Players &amp; Teams</button>
+    <button class="tab-btn" id="tabbtn-schedule" type="button" data-tab="schedule" role="tab" aria-selected="false" aria-controls="tab-schedule" tabindex="-1"><span aria-hidden="true">📅</span> 4. Schedule &amp; Pairings</button>
+    <button class="tab-btn" id="tabbtn-courses" type="button" data-tab="courses" role="tab" aria-selected="false" aria-controls="tab-courses" tabindex="-1"><span aria-hidden="true">⛳</span> 5. ECGC Course &amp; Hole Analytics</button>
+    <button class="tab-btn" id="tabbtn-explorer" type="button" data-tab="explorer" role="tab" aria-selected="false" aria-controls="tab-explorer" tabindex="-1"><span aria-hidden="true">⚙️</span> 6. Courses, Rules &amp; Data Import</button>
     </div>
   </nav>
 
@@ -95,8 +95,8 @@
         </select>
       </div>
       <div class="filter-group filter-actions">
-        <button id="quick2026Btn" type="button" class="btn small primary">⚡ 2026 Men's League</button>
-        <button id="quickEcgcSyncBtn" type="button" class="btn small gold" title="Re-sync all 18 historical seasons from ecgc.sqlite">🔄 Re-Sync ECGC Data</button>
+        <button id="quick2026Btn" type="button" class="btn small primary"><span aria-hidden="true">⚡</span> 2026 Men's League</button>
+        <button id="quickEcgcSyncBtn" type="button" class="btn small gold" title="Re-sync all 18 historical seasons from ecgc.sqlite"><span aria-hidden="true">🔄</span> Re-Sync ECGC Data</button>
       </div>
     </section>
 
@@ -107,10 +107,10 @@
       <!-- Split-Season Standings Subtabs -->
       <div class="split-standings-bar">
         <div class="subtabs-list" role="group" aria-label="Split-Season Standings">
-          <button class="subtab-btn active" id="subtab-final" type="button" data-split="final">🏆 Final Combined Standings</button>
-          <button class="subtab-btn" id="subtab-first" type="button" data-split="first_half">🥇 First Half (Weeks 1–8)</button>
-          <button class="subtab-btn" id="subtab-second" type="button" data-split="second_half">🥈 Second Half (Weeks 9–16)</button>
-          <button class="subtab-btn" id="subtab-playoffs" type="button" data-split="playoffs">🏅 Playoff Brackets (Rd 1–4)</button>
+          <button class="subtab-btn active" id="subtab-final" type="button" data-split="final"><span aria-hidden="true">🏆</span> Final Combined Standings</button>
+          <button class="subtab-btn" id="subtab-first" type="button" data-split="first_half"><span aria-hidden="true">🥇</span> First Half (Weeks 1–8)</button>
+          <button class="subtab-btn" id="subtab-second" type="button" data-split="second_half"><span aria-hidden="true">🥈</span> Second Half (Weeks 9–16)</button>
+          <button class="subtab-btn" id="subtab-playoffs" type="button" data-split="playoffs"><span aria-hidden="true">🏅</span> Playoff Brackets (Rd 1–4)</button>
         </div>
       </div>
       <div id="splitStandingsContainer" class="hidden"></div>
@@ -191,8 +191,8 @@
             <span id="weekCourseBadge" class="badge"></span>
           </div>
           <div class="form-row">
-            <button id="toggleCaddyBtn" type="button" class="gold" aria-expanded="false" aria-controls="caddyModeBox">📱 Toggle Mobile Caddy Mode</button>
-            <button id="autoScoreMatchesBtn" type="button" class="primary">⚔️ Auto-Score Week Matches &amp; Standings</button>
+            <button id="toggleCaddyBtn" type="button" class="gold" aria-expanded="false" aria-controls="caddyModeBox"><span aria-hidden="true">📱</span> Toggle Mobile Caddy Mode</button>
+            <button id="autoScoreMatchesBtn" type="button" class="primary"><span aria-hidden="true">⚔️</span> Auto-Score Week Matches &amp; Standings</button>
           </div>
         </div>
 
@@ -207,11 +207,11 @@
               <span id="caddyHoleMeta" class="badge gold" aria-live="polite"></span>
             </div>
             <div class="form-row">
-              <button type="button" class="caddy-btn" data-rel="-1">🦅 Birdie (-1)</button>
-              <button type="button" class="caddy-btn primary" data-rel="0">⛳ Par (E)</button>
+              <button type="button" class="caddy-btn" data-rel="-1"><span aria-hidden="true">🦅</span> Birdie (-1)</button>
+              <button type="button" class="caddy-btn primary" data-rel="0"><span aria-hidden="true">⛳</span> Par (E)</button>
               <button type="button" class="caddy-btn" data-rel="1">Bogey (+1)</button>
               <button type="button" class="caddy-btn" data-rel="2">Double (+2)</button>
-              <button type="button" id="caddySaveBtn" class="primary">💾 Save Card</button>
+              <button type="button" id="caddySaveBtn" class="primary"><span aria-hidden="true">💾</span> Save Card</button>
             </div>
           </div>
         </div>
@@ -273,7 +273,7 @@
           <input type="email" id="pfEmail" placeholder="Email" maxlength="254" autocomplete="email" />
           <label for="pfPhone" class="sr-only">Phone</label>
           <input type="text" id="pfPhone" placeholder="Phone" maxlength="32" autocomplete="tel" />
-          <button type="submit" class="primary">💾 Save Player</button>
+          <button type="submit" class="primary"><span aria-hidden="true">💾</span> Save Player</button>
         </form>
       </div>
 
@@ -292,7 +292,7 @@
             <select id="tePlayerA" aria-label="Partner 1 Golfer"></select>
             <label for="tePlayerB" class="sr-only">Partner 2</label>
             <select id="tePlayerB" aria-label="Partner 2 Golfer"></select>
-            <button type="submit" class="btn small primary">💾 Update Team</button>
+            <button type="submit" class="btn small primary"><span aria-hidden="true">💾</span> Update Team</button>
           </form>
           <div class="table-wrap">
             <table id="subsTable">
@@ -352,9 +352,9 @@
             <input id="schedWeeksInput" type="number" value="16" min="1" max="52" style="width:75px" />
             <label for="schedStartInput">Start Date:</label>
             <input id="schedStartInput" type="date" value="2026-05-05" />
-            <button id="genSchedBtn" type="button" class="primary">🔄 Auto-Generate Round-Robin</button>
-            <button id="togglePairingsBuilderBtn" type="button" class="gold" aria-expanded="false" aria-controls="weekPairingsEditorBox">✏️ Edit Week Pairings</button>
-            <button id="toggleRolloverWizardBtn" type="button" class="btn small" aria-expanded="false" aria-controls="rolloverWizardBox">🚀 New Season Rollover</button>
+            <button id="genSchedBtn" type="button" class="primary"><span aria-hidden="true">🔄</span> Auto-Generate Round-Robin</button>
+            <button id="togglePairingsBuilderBtn" type="button" class="gold" aria-expanded="false" aria-controls="weekPairingsEditorBox"><span aria-hidden="true">✏️</span> Edit Week Pairings</button>
+            <button id="toggleRolloverWizardBtn" type="button" class="btn small" aria-expanded="false" aria-controls="rolloverWizardBox"><span aria-hidden="true">🚀</span> New Season Rollover</button>
           </div>
         </div>
         <div id="weekPairingsEditorBox" class="caddy-box hidden" role="region" aria-label="Weekly 2-Man Matchup Pairing Editor" style="margin-bottom:12px;">
@@ -372,7 +372,7 @@
               </select>
             </div>
             <div class="form-row">
-              <button type="button" id="saveWeekPairingsBtn" class="primary">💾 Save Week Pairings</button>
+              <button type="button" id="saveWeekPairingsBtn" class="primary"><span aria-hidden="true">💾</span> Save Week Pairings</button>
             </div>
           </div>
           <div id="peMatchesGrid" class="rules-grid"></div>
@@ -394,7 +394,7 @@
               <label for="roStartDate">Start Date:</label>
               <input type="date" id="roStartDate" value="2027-05-05" />
             </div>
-            <button type="button" id="runRolloverBtn" class="primary">🚀 Create Season &amp; Roll Over Handicaps</button>
+            <button type="button" id="runRolloverBtn" class="primary"><span aria-hidden="true">🚀</span> Create Season &amp; Roll Over Handicaps</button>
           </div>
         </div>
 
@@ -432,8 +432,8 @@
             <span id="rulesConfigBadge" class="badge">Active Rules</span>
           </div>
           <div class="form-row">
-            <button id="saveRulesConfigBtn" type="button" class="primary">💾 Save Rules Configuration</button>
-            <button id="runEcgcImportBtn" type="button" class="gold">🔄 Run Full ECGC Importer</button>
+            <button id="saveRulesConfigBtn" type="button" class="primary"><span aria-hidden="true">💾</span> Save Rules Configuration</button>
+            <button id="runEcgcImportBtn" type="button" class="gold"><span aria-hidden="true">🔄</span> Run Full ECGC Importer</button>
           </div>
         </div>
         <form id="rulesConfigForm" class="rules-grid">
@@ -502,9 +502,9 @@
             <span class="badge">9-Hole 2-Person Team Match Play</span>
           </div>
           <div class="form-row">
-            <button id="simPresetCompetitiveBtn" type="button" class="btn small">⚡ Close Match Preset</button>
-            <button id="simPresetPlusHcpBtn" type="button" class="btn small">⚡ Plus-Hcp Preset</button>
-            <button id="runSimulateBtn" type="button" class="primary">⚔️ Run Match Simulation</button>
+            <button id="simPresetCompetitiveBtn" type="button" class="btn small"><span aria-hidden="true">⚡</span> Close Match Preset</button>
+            <button id="simPresetPlusHcpBtn" type="button" class="btn small"><span aria-hidden="true">⚡</span> Plus-Hcp Preset</button>
+            <button id="runSimulateBtn" type="button" class="primary"><span aria-hidden="true">⚔️</span> Run Match Simulation</button>
           </div>
         </div>
 
@@ -663,7 +663,7 @@
       <div class="modal-header">
         <h2 id="clubhouseModalTitle">🖨️ ECGC Weekly Clubhouse Sheet (Print Preview)</h2>
         <div class="form-row">
-          <button type="button" class="primary" id="confirmPrintSheetBtn">🖨️ Print 1-Page Sheet</button>
+          <button type="button" class="primary" id="confirmPrintSheetBtn"><span aria-hidden="true">🖨️</span> Print 1-Page Sheet</button>
           <button type="button" class="btn-close" id="closeClubhouseModalBtn" aria-label="Close print preview">&times;</button>
         </div>
       </div>

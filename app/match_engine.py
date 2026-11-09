@@ -27,7 +27,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
-from .golf_engine import rows_as_dicts, table_exists
+from .golf_engine import rows_as_dicts, table_exists, existing_tables
 
 # ---------------------------------------------------------------------------
 # Pure calculation helpers (no DB)
@@ -544,9 +544,12 @@ def load_week_entries(conn: sqlite3.Connection, ctx: dict[str, Any], lid: int, w
     subs_tbl = f"{lid}Subs"
     num_holes = ctx["num_holes"]
     p_map = {p["PlayerID"]: p for p in ctx["players"]}
-    results = rows_as_dicts(conn.execute(f'SELECT * FROM "{res_tbl}" WHERE "WeekNum"=?', (week_num,))) if table_exists(conn, res_tbl) else []
-    sub_rows = {r["PlayerID"]: r for r in rows_as_dicts(conn.execute(f'SELECT * FROM "{sub_tbl}" WHERE "WeekNum"=?', (week_num,)))} if table_exists(conn, sub_tbl) else {}
-    subs = {s["SubID"]: s for s in rows_as_dicts(conn.execute(f'SELECT * FROM "{subs_tbl}"'))} if table_exists(conn, subs_tbl) else {}
+
+    ex_tables = existing_tables(conn, [res_tbl, sub_tbl, subs_tbl])
+
+    results = rows_as_dicts(conn.execute(f'SELECT * FROM "{res_tbl}" WHERE "WeekNum"=?', (week_num,))) if res_tbl in ex_tables else []
+    sub_rows = {r["PlayerID"]: r for r in rows_as_dicts(conn.execute(f'SELECT * FROM "{sub_tbl}" WHERE "WeekNum"=?', (week_num,)))} if sub_tbl in ex_tables else {}
+    subs = {s["SubID"]: s for s in rows_as_dicts(conn.execute(f'SELECT * FROM "{subs_tbl}"'))} if subs_tbl in ex_tables else {}
     default_nine = scheduled_nine(conn, lid, week_num) if num_holes == 9 else "both"
     sub_pct = float(ctx["league"].get("SubPercent") or 100) / 100.0
 

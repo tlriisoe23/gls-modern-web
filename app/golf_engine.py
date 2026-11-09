@@ -75,6 +75,12 @@ def rows_as_dicts(cur: sqlite3.Cursor) -> list[dict[str, Any]]:
     return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
+def existing_tables(conn: sqlite3.Connection, names: list[str]) -> set[str]:
+    if not names:
+        return set()
+    placeholders = ",".join("?" * len(names))
+    return {r[0] for r in conn.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name IN ({placeholders})", names).fetchall()}
+
 def table_exists(conn: sqlite3.Connection, name: str) -> bool:
     r = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone()
     return r is not None
@@ -498,13 +504,16 @@ def get_week_scorecard(conn: sqlite3.Connection, lid: int, week_num: int) -> dic
     sched_tbl = f"{lid}Schedule"
     tr_tbl = f"{lid}TeamResults"
 
-    sched_rows = rows_as_dicts(conn.execute(f'SELECT * FROM "{sched_tbl}" WHERE "WeekNum"=?', (week_num,))) if table_exists(conn, sched_tbl) else []
+    req_tables = [sched_tbl, res_tbl, tr_tbl]
+    ex_tables = existing_tables(conn, req_tables)
+
+    sched_rows = rows_as_dicts(conn.execute(f'SELECT * FROM "{sched_tbl}" WHERE "WeekNum"=?', (week_num,))) if sched_tbl in ex_tables else []
     week_sched = sched_rows[0] if sched_rows else {"WeekNum": week_num}
 
-    raw_results = rows_as_dicts(conn.execute(f'SELECT * FROM "{res_tbl}" WHERE "WeekNum"=? ORDER BY "PlayerID" ASC', (week_num,))) if table_exists(conn, res_tbl) else []
+    raw_results = rows_as_dicts(conn.execute(f'SELECT * FROM "{res_tbl}" WHERE "WeekNum"=? ORDER BY "PlayerID" ASC', (week_num,))) if res_tbl in ex_tables else []
     res_by_pid = {r["PlayerID"]: r for r in raw_results}
 
-    team_results = rows_as_dicts(conn.execute(f'SELECT * FROM "{tr_tbl}" WHERE "WeekNum"=? ORDER BY "TeamID" ASC', (week_num,))) if table_exists(conn, tr_tbl) else []
+    team_results = rows_as_dicts(conn.execute(f'SELECT * FROM "{tr_tbl}" WHERE "WeekNum"=? ORDER BY "TeamID" ASC', (week_num,))) if tr_tbl in ex_tables else []
 
     scorecards = []
     for p in sorted(st["players"], key=lambda x: (x.get("TeamID") or 0, x.get("PlayerID") or 0)):
@@ -680,9 +689,10 @@ def auto_score_week_matches(conn: sqlite3.Connection, lid: int, week_num: int) -
             if tid > 0:
                 cards_by_tid.setdefault(tid, []).append(c)
 
-        tr_tbl_exists = table_exists(conn, tr_tbl)
-        ecgc_matches_exists = table_exists(conn, "ecgc_matches")
-        ecgc_events_exists = table_exists(conn, "ecgc_events")
+        ex_tables_as = existing_tables(conn, [tr_tbl, "ecgc_matches", "ecgc_events"])
+        tr_tbl_exists = tr_tbl in ex_tables_as
+        ecgc_matches_exists = "ecgc_matches" in ex_tables_as
+        ecgc_events_exists = "ecgc_events" in ex_tables_as
 
         event_id = None
         if ecgc_matches_exists and ecgc_events_exists:

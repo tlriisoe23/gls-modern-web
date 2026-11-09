@@ -10,16 +10,18 @@ import sqlite3
 import subprocess
 import tempfile
 import unicodedata
+from collections.abc import Awaitable, Callable, Generator
 from contextlib import closing, contextmanager
 from datetime import date
 from pathlib import Path
-from typing import Annotated, Any, Awaitable, Callable, Generator
+from typing import Annotated, Any
 
-from fastapi import FastAPI, File, HTTPException, Path as PathParam, Query, Request, Response, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import Path as PathParam
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, field_validator, ValidationInfo
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from . import ecgc_importer, golf_engine, match_engine, mdb_migrator
 
@@ -493,7 +495,7 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
             except FileNotFoundError as e:
                 raise HTTPException(status_code=404, detail=str(e))
             except Exception as e:
-                raise HTTPException(status_code=500, detail=f"ECGC import failed: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"ECGC import failed: {e!s}")
 
     @app.get("/api/ecgc/seasons")
     def list_ecgc_seasons() -> dict[str, Any]:
@@ -853,9 +855,11 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
     @app.post("/api/rules/simulate")
     def simulate_ecgc_match(req: dict[str, Any]) -> dict[str, Any]:
         for key in ("team_a", "team_b", "rules"):
-            if not isinstance(req.get(key, {}), dict):
+            val = req.get(key, {})
+            if not isinstance(val, dict) or (key in req and req[key] is None):
                 raise HTTPException(422, detail=f"{key} must be an object")
-        _validate_ecgc_rules(req.get("rules", {}))
+        rules_val = req.get("rules", {})
+        _validate_ecgc_rules(rules_val if isinstance(rules_val, dict) else {})
         for key in ("hole_ranks", "pars"):
             if key in req:
                 values = req[key]
@@ -865,8 +869,10 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
                     raise HTTPException(422, detail="hole_ranks must be a permutation of 1..9")
         for team_key in ("team_a", "team_b"):
             for player_key in ("player1", "player2"):
-                player = req.get(team_key, {}).get(player_key, {})
-                if not isinstance(player, dict):
+                team = req.get(team_key, {})
+                team = team if isinstance(team, dict) else {}
+                player = team.get(player_key, {})
+                if not isinstance(player, dict) or (player_key in team and team[player_key] is None):
                     raise HTTPException(422, detail="Players must be objects")
                 hcp = player.get("handicap", 0)
                 if isinstance(hcp, bool) or not isinstance(hcp, (float, int)) or not math.isfinite(hcp) or not -54 <= hcp <= 54:
@@ -877,8 +883,11 @@ def create_app(db_path: Path | None = None, mdb_seed: Path | None = None, schedu
                         if not isinstance(scores, list) or len(scores) != 9 or any(type(s) is not int or not -36 <= s <= golf_engine.MAX_HOLE_SCORE for s in scores):
                             raise HTTPException(422, detail="Scores must contain nine valid integers")
         team_a = req.get("team_a", {})
+        team_a = team_a if isinstance(team_a, dict) else {}
         team_b = req.get("team_b", {})
+        team_b = team_b if isinstance(team_b, dict) else {}
         rules = req.get("rules", {})
+        rules = rules if isinstance(rules, dict) else {}
         ranks = req.get("hole_ranks") or [7, 1, 5, 4, 6, 3, 2, 8, 9]
         pars = req.get("pars") or [4, 4, 4, 3, 5, 5, 4, 3, 4]
         return match_engine.score_ecgc_2person_match(

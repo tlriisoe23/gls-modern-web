@@ -440,3 +440,47 @@ def test_api_health_contract(client):
     for key, expected_type in expected_keys.items():
         assert key in data, f"Missing key in health payload: {key}"
         assert isinstance(data[key], expected_type), f"Expected {key} to be {expected_type}, got {type(data[key])}"
+
+def test_mdb_migrator_timeout_cleanup(monkeypatch, tmp_path):
+    from app import mdb_migrator
+    import subprocess
+    import sqlite3
+
+    real_connect = sqlite3.connect
+    class TrackedConnection(sqlite3.Connection):
+        closed_flag = False
+        def close(self):
+            self.closed_flag = True
+            super().close()
+
+    opened: list["TrackedConnection"] = []
+    def tracking_connect(*a, **kw):
+        c = real_connect(*a, factory=TrackedConnection, **kw)
+        opened.append(c)
+        return c
+
+    monkeypatch.setattr(mdb_migrator.sqlite3, "connect", tracking_connect)
+
+    def fake_run(args, **kwargs):
+        if "mdb-export" in args[0]:
+            raise subprocess.TimeoutExpired(cmd=args, timeout=30)
+        class FakeCompletedProcess:
+            stdout = "Table1\nTable2\n"
+        return FakeCompletedProcess()
+
+    monkeypatch.setattr(mdb_migrator.subprocess, "run", fake_run)
+    monkeypatch.setattr(mdb_migrator.shutil, "which", lambda x: f"/fake/bin/{x}")
+
+    mdb_path = tmp_path / "fake.mdb"
+    mdb_path.write_bytes(b"dummy")
+    sqlite_path = tmp_path / "out.db"
+
+    import pytest
+    with pytest.raises(subprocess.TimeoutExpired):
+        mdb_migrator.migrate_mdb_to_sqlite(mdb_path, sqlite_path)
+
+    assert opened, "expected _migrate_into to open a connection"
+    assert all(c.closed_flag for c in opened), "connection was leaked on subprocess timeout"
+
+    leftovers = list(tmp_path.glob(".gls9-migrate-*"))
+    assert not leftovers, f"Scratch files leaked: {leftovers}"
